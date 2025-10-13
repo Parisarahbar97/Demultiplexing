@@ -1,11 +1,12 @@
-# Minimal bcftools image for VCF prep
-FROM staphb/bcftools:1.21
+# Minimal bcftools image WITH plugins
+FROM quay.io/biocontainers/bcftools:1.21--h8b25389_0
 
-# (Optional) If your script uses bash-isms, ensure /bin/bash exists (it does on this base)
-# Copy your prep script into the image
+# Tell bcftools where plugins live (bioconda path)
+ENV BCFTOOLS_PLUGINS=/opt/conda/libexec/bcftools
+
+# Your prep script
 COPY scripts/prep_healthy_vcfs.sh /usr/local/bin/prep_healthy_vcfs.sh
 RUN chmod +x /usr/local/bin/prep_healthy_vcfs.sh
 
 WORKDIR /work
-# Make the script the default entrypoint so we can just pass /in /out
 ENTRYPOINT ["/usr/local/bin/prep_healthy_vcfs.sh"]
