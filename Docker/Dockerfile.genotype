@@ -1,14 +1,11 @@
-# docker/Dockerfile.genotype
-FROM biocontainers/bcftools:v1.21-1-deb_cv1
+# Minimal bcftools image for VCF prep
+FROM staphb/bcftools:1.21
 
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash coreutils findutils grep sed awk gzip pigz parallel procps \
- && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Add our one-click VCF prep script
+# (Optional) If your script uses bash-isms, ensure /bin/bash exists (it does on this base)
+# Copy your prep script into the image
 COPY scripts/prep_healthy_vcfs.sh /usr/local/bin/prep_healthy_vcfs.sh
 RUN chmod +x /usr/local/bin/prep_healthy_vcfs.sh
 
 WORKDIR /work
+# Make the script the default entrypoint so we can just pass /in /out
 ENTRYPOINT ["/usr/local/bin/prep_healthy_vcfs.sh"]
