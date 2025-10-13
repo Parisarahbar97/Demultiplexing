@@ -1,43 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage:
+# Usage example:
 #   run_demux.sh \
-#     --bam /data/S10A/outs/possorted_genome_bam.bam \
-#     --barcodes /data/S10A/outs/filtered_feature_bc_matrix/barcodes.tsv.gz \
+#     --bam /data/D1A_mapped/outs/possorted_genome_bam.bam \
+#     --barcodes /data/D1A_mapped/outs/filtered_feature_bc_matrix/barcodes.tsv.gz \
 #     --vcf-pileup /vcf/healthy_all.for_pileup.vcf.gz \
 #     --vcf-demux  /vcf/healthy_all.merged.biallelic.vcf.gz \
 #     --outdir /out \
-#     --prefix S10A_mapped \
-#     [--sm-list /lists/S10A_donors.txt] \
-#     [--field GT|GP|GL] \
-#     [--doublet-prior 0.1] \
-#     [--tag-group CB] [--tag-UMI UB]
-#
-# Notes:
-# - For 10x, default tags are CB (cell barcode) and UB (UMI). :contentReference[oaicite:4]{index=4}
-# - The pileup VCF must carry AC and AN (use bcftools +fill-tags in Step 4.1). :contentReference[oaicite:5]{index=5}
-# - Use --field GP for imputed genotypes; GT for hard-called genotypes. (popscle supports GT/GP/GL.) :contentReference[oaicite:6]{index=6}
+#     --prefix D1A_mapped \
+#     --sm-list /lists/D1A_pool_donors.txt \
+#     --field GT
 
-# ---------- parse args ----------
-BAM=""
-BARCODES=""
-VCF_PILEUP=""
-VCF_DEMUX=""
-OUTDIR=""
-PREFIX=""
+# Required:
+BAM=""; BARCODES=""; VCF_PILEUP=""; VCF_DEMUX=""; OUTDIR=""; PREFIX=""
+# Optional:
 SM_LIST=""
-FIELD="GT"
-DOUBLETPRIOR="0.10"
-TAG_GROUP="CB"
-TAG_UMI="UB"
+FIELD="GT"          # GT for hard-called; GP for imputed (diseased)
+DOUBLETPRIOR="0.10" # typical 5–10% expected doublets
+TAG_GROUP="CB"      # 10x default
+TAG_UMI="UB"        # 10x default
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --bam) BAM="$2"; shift 2;;
     --barcodes) BARCODES="$2"; shift 2;;
     --vcf-pileup) VCF_PILEUP="$2"; shift 2;;
-    --vcf-demux) VCF_DEMUX="$2"; shift 2;;
+    --vcf-demux)  VCF_DEMUX="$2"; shift 2;;
     --outdir) OUTDIR="$2"; shift 2;;
     --prefix) PREFIX="$2"; shift 2;;
     --sm-list) SM_LIST="$2"; shift 2;;
@@ -56,7 +45,7 @@ done
 mkdir -p "$OUTDIR"
 PLP_PREFIX="$OUTDIR/${PREFIX}_pileup"
 
-# Decompress barcodes if needed (dsc-pileup expects a plain list)
+# dsc-pileup expects a plain list; gunzip if needed
 BC_TMP="$BARCODES"
 if [[ "$BARCODES" == *.gz ]]; then
   BC_TMP="$(mktemp)"
@@ -64,6 +53,7 @@ if [[ "$BARCODES" == *.gz ]]; then
 fi
 
 echo "[INFO] Running dsc-pileup..."
+# popscle docs: 10x tags are CB (barcodes) and UB (UMIs); pileup VCF must have AC/AN. :contentReference[oaicite:1]{index=1}
 popscle dsc-pileup \
   --sam "$BAM" \
   --vcf "$VCF_PILEUP" \
@@ -85,6 +75,6 @@ popscle demuxlet \
   --out "$DEMUX_DIR/demuxlet"
 set +x
 
-echo "[INFO] Done. Key outputs:"
-echo "  - $DEMUX_DIR/demuxlet.best  (barcode → donor assignment, doublets, posteriors)"
+echo "[INFO] Done:"
+echo "  - $DEMUX_DIR/demuxlet.best   (barcode → donor; posteriors; doublet calls)"
 echo "  - ${PLP_PREFIX}.{plp,var,cel}  (reusable pileups)"

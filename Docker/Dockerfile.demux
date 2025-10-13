@@ -1,17 +1,8 @@
-# Docker/Dockerfile.demux
-#
-# Minimal image for genotype-based demultiplexing with popscle (dsc-pileup + demuxlet).
-# - Base: a published popscle image (contains popscle binaries)
-# - Adds: samtools/tabix (for indexes), coreutils, and our wrapper script.
-
+# Minimal image for popscle (dsc-pileup + demuxlet)
+# Base contains the popscle binaries already.
 FROM cumulusprod/popscle:0.1b
 
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      samtools tabix coreutils gzip pigz procps ca-certificates \
-  && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Add the runner script
+# add a small runner that wraps the two-step flow
 COPY scripts/run_demux.sh /usr/local/bin/run_demux.sh
 RUN chmod +x /usr/local/bin/run_demux.sh
 
