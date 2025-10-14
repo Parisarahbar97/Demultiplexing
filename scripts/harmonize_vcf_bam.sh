@@ -1,58 +1,125 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Usage:
-#   harmonize_vcf_bam.sh BAM.vbam VCF_IN.vcf[.gz] VCF_OUT.vcf.gz [--chr-map map.txt]
-# 1) Get contig order from BAM -> rebuild VCF header in that order
-# 2) Sort records to that order
-# 3) Ensure INFO/AC, INFO/AN, INFO/AF exist (needed by dsc-pileup)
 
-if [[ $# -lt 3 ]]; then
-  echo "Usage: $0 BAM VCF_IN VCF_OUT [--chr-map map.txt]" >&2; exit 1
-fi
-BAM="$1"; VCF_IN="$2"; VCF_OUT="$3"; CHR_MAP=""
-shift 3 || true
+# Harmonize a VCF header/record order to match a BAM's contig order (for popscle).
+# Optionally add INFO tags AC, AN, AF at the end.
+#
+# Usage:
+#   harmonize_vcf_bam.sh BAM VCF_IN [--out-type v|z|u|b] [--add-af] [--af-tags 'AC,AN,AF'] [--tmpdir DIR]
+#
+# Notes:
+#   - Writes the final VCF/BCF to STDOUT. Redirect it to a file.
+#   - --out-type:
+#       v = uncompressed VCF     z = bgzipped VCF
+#       u = uncompressed BCF     b = compressed BCF
+#     (default: z)
+#   - --add-af will run `bcftools +fill-tags` with the tags in --af-tags (default AC,AN,AF)
+#   - Requires: samtools, bcftools (with plugins), awk (mawk or gawk)
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  harmonize_vcf_bam.sh BAM VCF_IN [--out-type v|z|u|b] [--add-af] [--af-tags 'AC,AN,AF'] [--tmpdir DIR]
+
+Examples:
+  # Write bgzipped harmonized VCF to file:
+  harmonize_vcf_bam.sh sample.bam pool.vcf z > pool.bamlike.vcf.gz
+
+  # Same, and add AC/AN/AF in one go:
+  harmonize_vcf_bam.sh sample.bam pool.vcf --out-type z --add-af > pool.bamlike.af.vcf.gz
+EOF
+}
+
+# ---- parse args ----
+if [[ $# -lt 2 ]]; then usage; exit 1; fi
+
+BAM=""; VCF_IN=""
+OUTTYPE="z"
+ADD_AF=0
+AF_TAGS="AC,AN,AF"
+USER_TMPDIR=""
+
+# positional BAM, VCF first
+BAM="$1"; shift
+VCF_IN="$1"; shift
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --chr-map) CHR_MAP="$2"; shift 2;;
-    *) echo "Unknown option: $1" >&2; exit 1;;
+    --out-type) OUTTYPE="${2:-z}"; shift 2;;
+    --add-af)   ADD_AF=1; shift;;
+    --af-tags)  AF_TAGS="${2:-AC,AN,AF}"; shift 2;;
+    --tmpdir)   USER_TMPDIR="${2:-}"; shift 2;;
+    -h|--help)  usage; exit 0;;
+    *) echo "Unknown arg: $1" >&2; usage; exit 1;;
   esac
 done
 
-command -v bcftools >/dev/null || { echo "bcftools not found" >&2; exit 1; }
-command -v samtools >/dev/null || { echo "samtools not found" >&2; exit 1; }
-command -v tabix    >/dev/null || { echo "tabix not found" >&2; exit 1; }
-
-workdir="$(mktemp -d)"; trap 'rm -rf "$workdir"' EXIT
-
-# contigs from BAM in BAM order
-samtools view -H "$BAM" \
-| awk -F'\t' '$1=="@SQ"{sn="";ln="";
-  for(i=2;i<=NF;i++){if($i~^"SN:")sn=substr($i,4);else if($i~^"LN:")ln=substr($i,4)}
-  if(sn!="")printf "##contig=<ID=%s,length=%s>\n",sn,ln}' \
-> "$workdir/contigs.from_bam.txt"
-
-# optional rename of VCF contigs
-VCF_STEP="$VCF_IN"
-if [[ -n "$CHR_MAP" ]]; then
-  VCF_STEP="$workdir/renamed.vcf.gz"
-  bcftools annotate --rename-chrs "$CHR_MAP" "$VCF_IN" -Oz -o "$VCF_STEP"
-  tabix -f -p vcf "$VCF_STEP"
+# ---- setup temp ----
+if [[ -n "$USER_TMPDIR" ]]; then
+  tmpdir="$USER_TMPDIR"
+  mkdir -p "$tmpdir"
+else
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' EXIT
 fi
 
-# rebuild header: meta (no contigs) + BAM contigs + #CHROM
-bcftools view -h "$VCF_STEP" > "$workdir/hdr.all.txt"
-grep -v '^##contig=<' "$workdir/hdr.all.txt" | grep -v '^#CHROM' > "$workdir/meta.nocontig.txt"
-grep  '^#CHROM'       "$workdir/hdr.all.txt" > "$workdir/cols.txt"
-cat "$workdir/meta.nocontig.txt" "$workdir/contigs.from_bam.txt" "$workdir/cols.txt" > "$workdir/hdr.bamorder.txt"
+hdr_all="$tmpdir/hdr.all.txt"
+meta_nocontig="$tmpdir/meta.nocontig.txt"
+hdr_cols="$tmpdir/cols.txt"
+vcf_contigs="$tmpdir/vcf.contigs.tsv"
+bam_order="$tmpdir/bam.order.txt"
+hdr_contigs_new="$tmpdir/hdr.contigs.new.txt"
+hdr_new="$tmpdir/hdr.new.txt"
 
-# apply header + sort records to that order
-bamlike="$workdir/bamlike.vcf.gz"
-bcftools reheader -h "$workdir/hdr.bamorder.txt" "$VCF_STEP" | bcftools sort -Oz -o "$bamlike"
-tabix -f -p vcf "$bamlike"
+# ---- 1) Split VCF header into parts ----
+bcftools view -h "$VCF_IN" > "$hdr_all"
 
-# ensure AC/AN/AF present
-bcftools +fill-tags "$bamlike" -Oz -o "$VCF_OUT" -- -t AC,AN,AF
-tabix -f -p vcf "$VCF_OUT"
+# keep all header lines except contigs and #CHROM
+grep -v '^##contig=<' "$hdr_all" | grep -v '^#CHROM' > "$meta_nocontig"
+# the #CHROM line
+grep '^#CHROM' "$hdr_all" > "$hdr_cols"
 
-echo "Harmonized VCF: $VCF_OUT"
-bcftools view -h "$VCF_OUT" | grep -E 'ID=(AC|AN|AF)' || true
+# map VCF contig -> length (safe for mawk)
+awk -F'[=,>]' '
+  /^##contig=<ID=/ {
+    id=""; len="";
+    for (i=1;i<=NF;i++) {
+      if ($i=="ID")     { if (i<NF) id=$(i+1); }
+      else if ($i=="length") { if (i<NF) len=$(i+1); }
+    }
+    if (id!="") { print id "\t" len; }
+  }
+' "$hdr_all" > "$vcf_contigs"
+
+# ---- 2) Extract BAM contig order ----
+samtools view -H "$BAM" \
+| awk -F'\t' '
+  $1=="@SQ" {
+    id="";
+    for(i=1;i<=NF;i++){
+      if ($i ~ /^SN:/) { id=substr($i,4); }
+    }
+    if (id!="") { print id; }
+  }
+' > "$bam_order"
+
+# ---- 3) Build new contig header in BAM order for contigs present in the VCF ----
+awk '
+  NR==FNR { len[$1]=$2; next }               # first file: contig -> length
+  ($1 in len) {
+    printf("##contig=<ID=%s,length=%s>\n",$1,len[$1]);
+  }
+' "$vcf_contigs" "$bam_order" > "$hdr_contigs_new"
+
+# ---- 4) Assemble new header ----
+cat "$meta_nocontig" "$hdr_contigs_new" "$hdr_cols" > "$hdr_new"
+
+# ---- 5) Reheader + sort. Optionally add AF/AC/AN. Output to STDOUT. ----
+if [[ "$ADD_AF" -eq 1 ]]; then
+  bcftools reheader -h "$hdr_new" "$VCF_IN" \
+  | bcftools sort -T "$tmpdir" -O v \
+  | bcftools +fill-tags -O "$OUTTYPE" -- -t "$AF_TAGS"
+else
+  bcftools reheader -h "$hdr_new" "$VCF_IN" \
+  | bcftools sort -T "$tmpdir" -O "$OUTTYPE"
+fi
