@@ -1,14 +1,10 @@
-FROM quay.io/biocontainers/bcftools:1.21--h8b25389_0
+# bcftools + samtools + tabix already included
+FROM staphb/bcftools:1.21
 
-USER root
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends samtools ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
-
-# bcftools plugins already in /usr/local/libexec/bcftools in this base image
+# bcftools plugins are here in this image
 ENV BCFTOOLS_PLUGINS=/usr/local/libexec/bcftools
 
-# your helper scripts
+# your harmonization helper
 COPY scripts/harmonize_vcf_bam.sh /usr/local/bin/harmonize_vcf_bam.sh
 RUN chmod +x /usr/local/bin/harmonize_vcf_bam.sh
 
