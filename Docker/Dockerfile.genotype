@@ -1,12 +1,14 @@
-# Minimal bcftools image WITH plugins
+# bcftools + samtools image
 FROM quay.io/biocontainers/bcftools:1.21--h8b25389_0
 
-# Tell bcftools where plugins live (bioconda path)
-ENV BCFTOOLS_PLUGINS=/opt/conda/libexec/bcftools
+# Install samtools (via conda in this image)
+RUN conda install -y -c conda-forge -c bioconda samtools=1.19.2 && conda clean -afy
 
-# Your prep script
+# bcftools plugins live here in this image
+ENV BCFTOOLS_PLUGINS=/usr/local/libexec/bcftools
+
+# (optional) keep your prep script if you want
 COPY scripts/prep_healthy_vcfs.sh /usr/local/bin/prep_healthy_vcfs.sh
 RUN chmod +x /usr/local/bin/prep_healthy_vcfs.sh
 
 WORKDIR /work
-ENTRYPOINT ["/usr/local/bin/prep_healthy_vcfs.sh"]
