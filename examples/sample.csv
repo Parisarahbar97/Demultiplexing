@@ -1,0 +1,2 @@
+sample_id,bam,barcodes,vcf,sm_list
+D2A,/home/pr422/RDS/live/Users/Parisa/EPILEP/healthy/mapping/output/D2A_mapped/outs/possorted_genome_bam.bam,/home/pr422/RDS/live/Users/Parisa/EPILEP/healthy/mapping/output/D2A_mapped/outs/filtered_feature_bc_matrix/barcodes.tsv.gz,/home/pr422/RDS/live/Users/Parisa/vcf_per_samplepool/D2A.vcf,/home/pr422/RDS/live/Users/Parisa/vcf_per_samplepool/lists/D2A_pool_donors.clean.txt
