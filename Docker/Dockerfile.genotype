@@ -1,14 +1,15 @@
-# bcftools + samtools image
 FROM quay.io/biocontainers/bcftools:1.21--h8b25389_0
 
-# Install samtools (via conda in this image)
-RUN conda install -y -c conda-forge -c bioconda samtools=1.19.2 && conda clean -afy
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends samtools ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-# bcftools plugins live here in this image
+# bcftools plugins already in /usr/local/libexec/bcftools in this base image
 ENV BCFTOOLS_PLUGINS=/usr/local/libexec/bcftools
 
-# (optional) keep your prep script if you want
-COPY scripts/prep_healthy_vcfs.sh /usr/local/bin/prep_healthy_vcfs.sh
-RUN chmod +x /usr/local/bin/prep_healthy_vcfs.sh
+# your helper scripts
+COPY scripts/harmonize_vcf_bam.sh /usr/local/bin/harmonize_vcf_bam.sh
+RUN chmod +x /usr/local/bin/harmonize_vcf_bam.sh
 
 WORKDIR /work
