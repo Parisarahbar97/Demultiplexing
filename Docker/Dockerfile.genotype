@@ -4,7 +4,7 @@ FROM ubuntu:22.04
 # Noninteractive apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install bcftools + samtools + tabix (bgzip)
+# Install bcftools + samtools + tabix (bgzip) + certs
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         bcftools \
@@ -13,10 +13,10 @@ RUN apt-get update && \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# bcftools plugins path for the Ubuntu package
+# Ubuntu package location for bcftools plugins
 ENV BCFTOOLS_PLUGINS=/usr/lib/x86_64-linux-gnu/bcftools
 
-# Your harmonization helper
+# Harmonization helper
 COPY scripts/harmonize_vcf_bam.sh /usr/local/bin/harmonize_vcf_bam.sh
 RUN chmod +x /usr/local/bin/harmonize_vcf_bam.sh
 
