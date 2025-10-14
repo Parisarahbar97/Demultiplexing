@@ -1,10 +1,22 @@
-# bcftools + samtools + tabix already included
-FROM staphb/bcftools:1.21
+# Minimal base with apt
+FROM ubuntu:22.04
 
-# bcftools plugins are here in this image
-ENV BCFTOOLS_PLUGINS=/usr/local/libexec/bcftools
+# Noninteractive apt
+ENV DEBIAN_FRONTEND=noninteractive
 
-# your harmonization helper
+# Install bcftools + samtools + tabix (bgzip)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        bcftools \
+        samtools \
+        tabix \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# bcftools plugins path for the Ubuntu package
+ENV BCFTOOLS_PLUGINS=/usr/lib/x86_64-linux-gnu/bcftools
+
+# Your harmonization helper
 COPY scripts/harmonize_vcf_bam.sh /usr/local/bin/harmonize_vcf_bam.sh
 RUN chmod +x /usr/local/bin/harmonize_vcf_bam.sh
 
