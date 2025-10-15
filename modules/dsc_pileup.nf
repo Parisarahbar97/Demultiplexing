@@ -1,40 +1,32 @@
-process PILEUP {
-  tag "${sample_id}"
-  label 'PILEUP'
+process dsc_pileup {
+  tag "$sample_id"
+  publishDir "${params.outdir}/${sample_id}", mode: 'copy'
 
   input:
-  tuple val(sample_id), path(bam), path(barcodes), path(vcf_clean), path(sm_list)
+  tuple val(sample_id), path(bam), path(barcodes), path(vcf_for_pileup)
 
   output:
-  // pass along everything needed for the next step
   tuple val(sample_id),
-       path("${sample_id}_pileup.plp.gz"),
-       path("${sample_id}_pileup.var.gz"),
-       path("${sample_id}_pileup.cel.gz"),
-       path(vcf_clean),
-       path(sm_list),
-       path(barcodes)
+        path("${sample_id}_pileup.plp.gz"),
+        path("${sample_id}_pileup.var.gz"),
+        path("${sample_id}_pileup.cel.gz")
 
   script:
   """
   set -euo pipefail
+  BC_TMP=\$(mktemp)
+  case "$barcodes" in
+    *.gz) gzip -cd "$barcodes" > "\$BC_TMP" ;;
+    *)    cp "$barcodes" "\$BC_TMP" ;;
+  esac
 
-  # demuxlet wants a plain list for group-list; unzip if needed
-  BC_TXT=\$(mktemp)
-  if [[ "${barcodes}" == *.gz ]]; then
-    gzip -cd "${barcodes}" > "\$BC_TXT"
-  else
-    cp "${barcodes}" "\$BC_TXT"
-  fi
-
-  popscle dsc-pileup \\
-    --sam "${bam}" \\
-    --vcf "${vcf_clean}" \\
-    --group-list "\$BC_TXT" \\
-    --tag-group ${params.tag_group} \\
-    --tag-UMI ${params.tag_umi} \\
+  popscle dsc-pileup \
+    --sam "$bam" \
+    --vcf "$vcf_for_pileup" \
+    --group-list "\$BC_TMP" \
+    --tag-group CB --tag-UMI UB \
     --out "${sample_id}_pileup"
 
-  cp "\$BC_TXT" barcodes.txt || true
+  rm -f "\$BC_TMP"
   """
 }

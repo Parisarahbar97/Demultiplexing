@@ -1,48 +1,50 @@
-process QC {
-  tag "${sample_id}"
-  label 'QC'
+process qc_demuxlet {
+  tag "$sample_id"
+  publishDir "${params.outdir}/${sample_id}/${sample_id}_demuxlet", mode: 'copy'
 
   input:
   tuple val(sample_id), path(best), path(barcodes), path(sm_list)
 
   output:
-  path("${sample_id}.demuxlet.qc.txt")
+  path("QC_summary.txt")
+  path("donor_QC.tsv")
 
   script:
   """
   set -euo pipefail
-
-  N_BEST=\$(( \$(wc -l < "${best}") - 1 ))
-  N_10X=\$( ( [[ "${barcodes}" == *.gz ]] && gzip -cd "${barcodes}" || cat "${barcodes}" ) | wc -l )
-  OVERLAP=\$(comm -12 <(tail -n +2 "${best}" | cut -f2 | sort) <( ( [[ "${barcodes}" == *.gz ]] && gzip -cd "${barcodes}" || cat "${barcodes}" ) | sort ) | wc -l)
+  BEST="$best"
+  BARCODES="$barcodes"
+  SM_LIST="$sm_list"
 
   {
-    echo "sample\t${sample_id}"
-    echo "best_rows\t\$N_BEST"
-    echo "barcodes_10x\t\$N_10X"
-    echo "barcode_overlap\t\$OVERLAP"
-    echo ""
+    echo -e "donor\tsinglets\tdoublets_as_d1\tdoublets_as_d2\tdoublets_total"
+    tail -n +2 "$BEST" | awk -F'\\t' '
+      \$5=="SNG"{split(\$6,a,\",\"); s[a[1]]++; seen[a[1]]=1}
+      \$5=="DBL"{split(\$6,a,\",\"); d1[a[1]]++; d2[a[2]]++; seen[a[1]]=1; seen[a[2]]=1}
+      END{for(d in seen){sd=s[d]+0; x=d1[d]+0; y=d2[d]+0; printf "%s\\t%d\\t%d\\t%d\\t%d\\n", d, sd, x, y, x+y}}' \
+    | sort -k1,1
+  } > donor_QC.tsv
 
-    echo "[status_counts]"
-    tail -n +2 "${best}" | awk -F'\\t' '{c[\$5]++} END{for(k in c) printf "%s\\t%d\\n",k,c[k]}' | sort
-
-    echo ""
-    echo "[snp_depth]"
-    tail -n +2 "${best}" | awk -F'\\t' '{print \$3}' \\
-    | awk '{s+=\$1;n++; if(\$1<20) l20++} END{printf "mean_SNPS\\t%.2f\\n<20_SNPS\\t%d (%.2f%%)\\n", s/n, l20, 100*l20/n}'
-
-    echo ""
-    echo "[posterior_on_SNG]"
-    tail -n +2 "${best}" \\
-    | awk -F'\\t' '\$5=="SNG"{t++; if(\$12>=0.99) p99++; else if(\$12>=0.9) p90++} END{printf "SNG\\t%d\\n>=0.99\\t%d (%.1f%%)\\n0.9-<0.99\\t%d (%.1f%%)\\n", t,p99,100*p99/t,p90,100*p90/t+0}'
-
-    echo ""
-    echo "[donors_seen_vs_expected]"
-    tail -n +2 "${best}" | awk -F'\\t' '\$5=="SNG"{print \$13} \$5=="DBL"{split(\$6,a, ","); print a[1]; print a[2]}' | sort -u > donors_found.txt
-    echo "expected_but_NOT_seen:"
-    comm -13 <(sort donors_found.txt) <(sort "${sm_list}")
-    echo "seen_but_NOT_expected:"
-    comm -23 <(sort donors_found.txt) <(sort "${sm_list}")
-  } > ${sample_id}.demuxlet.qc.txt
+  {
+    echo "rows_vs_barcodes"
+    echo -n "barcodes "; zcat "$BARCODES" | wc -l
+    echo -n "best_rows "; awk 'END{print NR-1}' "$BEST"
+    echo -n "overlap   "; comm -12 <(tail -n +2 "$BEST" | cut -f2 | sort) <(zcat "$BARCODES" | sort) | wc -l
+    echo
+    echo "status_counts"
+    tail -n +2 "$BEST" | awk -F'\\t' '{c[\$5]++} END{for(k in c) printf "%s\\t%d\\n",k,c[k]}' | sort
+    echo
+    echo "sng_posteriors"
+    tail -n +2 "$BEST" | awk -F'\\t' '\$5=="SNG"{t++; if(\$12>=0.99) p99++; else if(\$12>=0.9) p90++}
+      END{printf "SNG=%d  >=0.99=%d (%.1f%%)  0.9-<0.99=%d (%.1f%%)\\n", t,p99,100*p99/t,p90,100*p90/t+0}'
+    echo
+    echo "top_dbl_pairs"
+    tail -n +2 "$BEST" | awk -F'\\t' '\$5=="DBL"{split(\$6,a,\",\"); d1=a[1]; d2=a[2]; pair=(d1<d2?d1\"+\"d2:d2\"+\"d1); p[pair]++} END{for(k in p) print p[k],k}' | sort -k1,1nr | head
+    echo
+    echo "donors_seen_vs_expected"
+    tail -n +2 "$BEST" | awk -F'\\t' '\$5=="SNG"{print \$13} \$5=="DBL"{split(\$6,a,\",\"); print a[1]; print a[2]}' | sort -u > donors_found.txt
+    echo "expected_but_NOT_seen:"; comm -13 donors_found.txt <(sort "$SM_LIST") || true
+    echo "seen_but_NOT_expected:"; comm -23 donors_found.txt <(sort "$SM_LIST") || true
+  } > QC_summary.txt
   """
 }

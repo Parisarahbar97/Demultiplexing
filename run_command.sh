@@ -1,6 +1,13 @@
-cd /home/pr422/RDS/live/Users/Parisa/Demultiplexing
+#!/usr/bin/env bash
+set -euo pipefail
 
-# (Optional) test only D2A row in examples/samples.csv first
+OUTDIR=/home/pr422/RDS/live/Users/Parisa/demux_out
+
 nextflow run main.nf -profile docker \
-  --manifest /home/pr422/RDS/live/Users/Parisa/Demultiplexing/examples/samples.csv \
-  --outdir   /home/pr422/RDS/live/Users/Parisa/demux_out
+  --samples examples/samples.csv \
+  --outdir "$OUTDIR" \
+  --field GT \
+  --doublet_prior 0.10 \
+  --vcf_filter biallelic_poly \
+  --pileup_vcf clean \
+  --demux_vcf clean
