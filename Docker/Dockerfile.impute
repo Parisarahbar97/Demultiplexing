@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 # Install PLINK 2 (static Linux build)
-ARG PLINK2_URL=https://s3.amazonaws.com/plink2-assets/plink2_linux_x86_64_20240723.zip
+ARG PLINK2_URL=https://s3.amazonaws.com/plink2-assets/plink2_linux_avx2_20250920.zip
 RUN mkdir -p /opt/plink2 && \
     curl -L "$PLINK2_URL" -o /opt/plink2/plink2.zip && \
     cd /opt/plink2 && unzip plink2.zip && rm plink2.zip && \
