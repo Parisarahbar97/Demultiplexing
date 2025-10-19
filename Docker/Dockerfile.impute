@@ -1,0 +1,28 @@
+# Extend your working bcftools+samtools image
+FROM parisa/genotype:2.6
+
+# Tools we’ll need
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl wget unzip pigz gawk coreutils ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install PLINK 2 (static Linux build)
+ARG PLINK2_URL=https://s3.amazonaws.com/plink2-assets/plink2_linux_x86_64_20240723.zip
+RUN mkdir -p /opt/plink2 && \
+    curl -L "$PLINK2_URL" -o /opt/plink2/plink2.zip && \
+    cd /opt/plink2 && unzip plink2.zip && rm plink2.zip && \
+    install -m 0755 /opt/plink2/plink2 /usr/local/bin/plink2
+
+# (Optional) Install PLINK 1.9 too
+ARG PLINK1_URL=https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20231211.zip
+RUN mkdir -p /opt/plink && \
+    curl -L "$PLINK1_URL" -o /opt/plink/plink.zip && \
+    cd /opt/plink && unzip plink.zip && rm plink.zip && \
+    install -m 0755 /opt/plink/plink /usr/local/bin/plink
+
+# Place to store chain files (if you want to bake them in; otherwise mount at runtime)
+RUN mkdir -p /opt/chains
+# You can add chain files later via volume (recommended) to avoid bloating the image
+
+ENV BCFTOOLS_PLUGINS=/usr/lib/x86_64-linux-gnu/bcftools
+WORKDIR /work
