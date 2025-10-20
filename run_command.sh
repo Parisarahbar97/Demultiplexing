@@ -1,13 +1,7 @@
-#!/usr/bin/env bash
-set -euo pipefail
+cd /home/pr422/RDS/live/Users/Parisa/Demultiplexing
 
-OUTDIR=/home/pr422/RDS/live/Users/Parisa/demux_out
-
-nextflow run main.nf -profile docker \
-  --samples examples/samples.csv \
-  --outdir "$OUTDIR" \
-  --field GT \
-  --doublet_prior 0.10 \
-  --vcf_filter biallelic_poly \
-  --pileup_vcf clean \
-  --demux_vcf clean
+# Single sample (e.g. D10A) from your CSV:
+nextflow run main.nf -profile dsi \
+  --samples   "/home/pr422/RDS/live/Users/Parisa/Demultiplexing/examples/samples.csv" \
+  --outdir    "/home/pr422/RDS/live/Users/Parisa/demux_out_nf/D10A" \
+  -with-report -with-timeline -with-trace
