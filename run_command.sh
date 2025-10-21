@@ -38,7 +38,13 @@ docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '\
     --maf-min    0.0 \
     --maf-max    1.0'
 
-# 4) Optional: subset post-imputed VCFs per pool (see README for helper snippet)
+# 4) Rebuild per-pool VCFs directly from the merged MIS output (required for demuxlet)
+docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '\
+  cd /host/RDS/live/Users/Parisa/Demultiplexing && \
+  ./scripts/mis_make_pool_vcfs.sh \
+    --merged-vcf /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_post/post/job1.R2filt.vcf.gz \
+    --lists-dir  /host/RDS/live/Users/Parisa/vcf_per_samplepool/lists \
+    --output-dir /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_pools_fix'
 
 # 5) Run demultiplexing nextflow pipeline
 nextflow run main.nf -profile dsi \

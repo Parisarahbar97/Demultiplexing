@@ -91,26 +91,24 @@ Outputs (example: `imputation_work/03_imputed/mis_job1_post/post/`):
 - `job1.R2filt.MAF.vcf.gz` – optional AF-filtered VCF (useful if you impose an
   AF window via `--maf-min/--maf-max`).
 
-### Optional: subset per pool
+### Required: rebuild per-pool VCFs for demuxlet
 
-Using the manifest created in step 2, generate four-donor VCFs:
+Always subset the final merged MIS VCF with the true donor lists for each pool;
+otherwise demuxlet will misassign reads if a donor is missing. A helper script
+now lives in `scripts/mis_make_pool_vcfs.sh`:
 
 ```bash
-POST=/home/pr422/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_post/post/job1.R2filt.vcf.gz
-MAN=/home/pr422/RDS/live/Users/Parisa/imputation_work/02_mis_prep/vcf_unique_manifest.tsv
-POOL_OUT=/home/pr422/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_pools
-mkdir -p "${POOL_OUT}"
-for pool in D10A D10P D11A D11P D12A D12P D13A D13P D1A D1P D2A D2P \
-            D3A D3P D4A D4P D5A D5P D6A D6P D7A D7P D8A D8P D9A D9P; do
-  awk -v pfx="${pool}.clean.vcf.gz" -F"\t" '$1==pfx{print $2}' "${MAN}" > "${POOL_OUT}/${pool}.donors.txt"
-  if [[ -s "${POOL_OUT}/${pool}.donors.txt" ]]; then
-    bcftools view -S "${POOL_OUT}/${pool}.donors.txt" "${POST}" -v snps -m2 -M2 -c 1:minor -Oz -o "${POOL_OUT}/${pool}.imputed.vcf.gz"
-    tabix -f -p vcf "${POOL_OUT}/${pool}.imputed.vcf.gz"
-  fi
-done
+docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '\
+  cd /host/RDS/live/Users/Parisa/Demultiplexing && \
+  ./scripts/mis_make_pool_vcfs.sh \
+    --merged-vcf /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_post/post/job1.R2filt.vcf.gz \
+    --lists-dir  /host/RDS/live/Users/Parisa/vcf_per_samplepool/lists \
+    --output-dir /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_pools_fix'
 ```
 
-Use these per-pool VCFs (GP preferred) in the Nextflow demultiplexing pipeline.
+The script enforces biallelic SNPs, recreates `POOL.imputed.R2filt.vcf.gz`
+alongside `POOL.donors.txt`, and aborts if any expected donor is absent from
+the merged VCF so you can restore their genotypes before demultiplexing.
 
 ## 4. Demultiplexing (existing workflow)
 
