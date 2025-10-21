@@ -80,7 +80,8 @@ docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '
     --output-dir /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_post \
     --prefix     job1 \
     --r2-min     0.4 \
-    --maf-min    0.05'
+    --maf-min    0.0 \
+    --maf-max    1.0'
 ```
 
 Outputs (example: `imputation_work/03_imputed/mis_job1_post/post/`):
@@ -103,7 +104,7 @@ for pool in D10A D10P D11A D11P D12A D12P D13A D13P D1A D1P D2A D2P \
             D3A D3P D4A D4P D5A D5P D6A D6P D7A D7P D8A D8P D9A D9P; do
   awk -v pfx="${pool}.clean.vcf.gz" -F"\t" '$1==pfx{print $2}' "${MAN}" > "${POOL_OUT}/${pool}.donors.txt"
   if [[ -s "${POOL_OUT}/${pool}.donors.txt" ]]; then
-    bcftools view -S "${POOL_OUT}/${pool}.donors.txt" "${POST}" -Oz -o "${POOL_OUT}/${pool}.imputed.vcf.gz"
+    bcftools view -S "${POOL_OUT}/${pool}.donors.txt" "${POST}" -v snps -m2 -M2 -c 1:minor -Oz -o "${POOL_OUT}/${pool}.imputed.vcf.gz"
     tabix -f -p vcf "${POOL_OUT}/${pool}.imputed.vcf.gz"
   fi
 done

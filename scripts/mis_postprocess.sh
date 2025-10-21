@@ -13,7 +13,7 @@
 #       --output-dir imputation_work/03_imputed/mis_job1_post \
 #       --prefix     job1 \
 #       --r2-min     0.4 \
-#       --maf-min    0.05
+#       --maf-min    0.0
 #
 # Requirements: unzip, bcftools (>=1.10), tabix.
 
@@ -32,8 +32,7 @@ Optional:
   -r, --r2-min     FLOAT  Minimum INFO/R2 to retain (default: 0.4).
   -m, --maf-min    FLOAT  Minimum AF to retain (default: 0.05).
   -M, --maf-max    FLOAT  Maximum AF to retain (default: 0.95).
-      --zip-password STR  Password for encrypted chr_*.zip archives (optional).
-  -h, --help              Show this help message and exit.
+  -h, --help              Show this help and exit.
 
 Outputs (under --output-dir):
   bcf/{chrN.bcf}                    Intermediate BCFs per chromosome.
@@ -49,7 +48,6 @@ prefix="imputed"
 r2_min="0.4"
 maf_min="0.05"
 maf_max="0.95"
-zip_password=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
