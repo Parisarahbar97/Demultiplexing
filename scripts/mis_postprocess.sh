@@ -13,7 +13,8 @@
 #       --output-dir imputation_work/03_imputed/mis_job1_post \
 #       --prefix     job1 \
 #       --r2-min     0.4 \
-#       --maf-min    0.0
+#       --maf-min    0.0 \
+#       --maf-max    1.0
 #
 # Requirements: unzip, bcftools (>=1.10), tabix.
 
@@ -30,8 +31,8 @@ Required:
 Optional:
   -p, --prefix     STR    Prefix for output files (default: imputed).
   -r, --r2-min     FLOAT  Minimum INFO/R2 to retain (default: 0.4).
-  -m, --maf-min    FLOAT  Minimum AF to retain (default: 0.05).
-  -M, --maf-max    FLOAT  Maximum AF to retain (default: 0.95).
+  -m, --maf-min    FLOAT  Minimum AF to retain (default: 0.0).
+  -M, --maf-max    FLOAT  Maximum AF to retain (default: 1.0).
   -h, --help              Show this help and exit.
 
 Outputs (under --output-dir):
@@ -46,8 +47,8 @@ input_dir=""
 output_dir=""
 prefix="imputed"
 r2_min="0.4"
-maf_min="0.05"
-maf_max="0.95"
+maf_min="0.0"
+maf_max="1.0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
