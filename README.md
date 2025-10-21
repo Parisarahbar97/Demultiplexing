@@ -68,7 +68,9 @@ prephasing, and Minimac4.
 
 ## 3. Post-imputation QC (after MIS download)
 
-Point the script at the folder containing `chr_*.zip` from MIS.
+Point the script at the folder containing `chr_*.zip` from MIS. The helper
+converts each chromosome archive to BCF (for robust concatenation), merges
+them, applies the INFO/R2 filter, and optionally enforces an AF window.
 
 ```bash
 docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '
@@ -81,19 +83,19 @@ docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '
     --maf-min    0.05'
 ```
 
-Outputs (`imputation_work/03_imputed/mis_job1_post/`):
+Outputs (example: `imputation_work/03_imputed/mis_job1_post/post/`):
 
-- `job1.merged.vcf.gz` – concatenation of chr1..22.
-- `job1.R2filt.vcf.gz` – INFO/R2 filtered autosomal SNPs.
-- `job1.R2filt.MAF.vcf.gz` – additional AF window (default 0.05–0.95) suitable
-  for demuxlet.
+- `job1.merged.bcf` – concatenated chr1..22 BCF.
+- `job1.R2filt.vcf.gz` – INFO/R2 filtered autosomal SNPs (no AF window).
+- `job1.R2filt.MAF.vcf.gz` – optional AF-filtered VCF (useful if you impose an
+  AF window via `--maf-min/--maf-max`).
 
 ### Optional: subset per pool
 
 Using the manifest created in step 2, generate four-donor VCFs:
 
 ```bash
-POST=/home/pr422/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_post/job1.R2filt.MAF.vcf.gz
+POST=/home/pr422/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_post/post/job1.R2filt.vcf.gz
 MAN=/home/pr422/RDS/live/Users/Parisa/imputation_work/02_mis_prep/vcf_unique_manifest.tsv
 POOL_OUT=/home/pr422/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_pools
 mkdir -p "${POOL_OUT}"

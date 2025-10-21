@@ -2,11 +2,10 @@
 #
 # mis_postprocess.sh
 # -------------------
-# Post-process Michigan Imputation Server results:
-#   1. Unzip per-chromosome archives.
-#   2. Concatenate chr1..chr22 into a single VCF.
-#   3. Filter by INFO/R2 and optional minor allele frequency.
-#   4. Produce a final VCF ready for demuxlet (GP/DS in FORMAT).
+# Post-process Michigan Imputation Server results by converting each chr_*.zip
+# bundle to BCF, concatenating across chromosomes, filtering by INFO/R2, and
+# optionally applying a minor allele frequency window. Outputs a final VCF
+# suitable for demuxlet (GP/DS preserved).
 #
 # Usage:
 #   ./scripts/mis_postprocess.sh \
@@ -16,7 +15,7 @@
 #       --r2-min     0.4 \
 #       --maf-min    0.05
 #
-# Requirements: unzip, bcftools, tabix.
+# Requirements: unzip, bcftools (>=1.10), tabix.
 
 set -euo pipefail
 
@@ -29,16 +28,18 @@ Required:
   -o, --output-dir DIR    Directory for processed outputs.
 
 Optional:
-  -p, --prefix     STR    Prefix for output VCFs (default: imputed).
+  -p, --prefix     STR    Prefix for output files (default: imputed).
   -r, --r2-min     FLOAT  Minimum INFO/R2 to retain (default: 0.4).
   -m, --maf-min    FLOAT  Minimum AF to retain (default: 0.05).
   -M, --maf-max    FLOAT  Maximum AF to retain (default: 0.95).
-  -h, --help              Show this help and exit.
+      --zip-password STR  Password for encrypted chr_*.zip archives (optional).
+  -h, --help              Show this help message and exit.
 
-Outputs:
-  merge/{prefix}.merged.vcf.gz            Concatenated chr1..22 VCF.
-  post/{prefix}.R2filt.vcf.gz             After INFO/R2 filter.
-  post/{prefix}.R2filt.MAF.vcf.gz         After R2 + MAF filters.
+Outputs (under --output-dir):
+  bcf/{chrN.bcf}                    Intermediate BCFs per chromosome.
+  post/{prefix}.merged.bcf          Concatenated BCF across chr1..chr22.
+  post/{prefix}.R2filt.vcf.gz       After INFO/R2 filter (autosomal SNPs).
+  post/{prefix}.R2filt.MAF.vcf.gz   After INFO/R2 + AF window.
 USAGE
 }
 
@@ -48,6 +49,7 @@ prefix="imputed"
 r2_min="0.4"
 maf_min="0.05"
 maf_max="0.95"
+zip_password=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -57,6 +59,7 @@ while [[ $# -gt 0 ]]; do
     -r|--r2-min)     r2_min="$2"; shift 2 ;;
     -m|--maf-min)    maf_min="$2"; shift 2 ;;
     -M|--maf-max)    maf_max="$2"; shift 2 ;;
+        --zip-password) zip_password="$2"; shift 2 ;;
     -h|--help)       usage; exit 0 ;;
     *) echo "ERROR: Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -74,41 +77,46 @@ command -v unzip >/dev/null 2>&1     || { echo "ERROR: unzip not found" >&2; exi
 command -v bcftools >/dev/null 2>&1  || { echo "ERROR: bcftools not found" >&2; exit 1; }
 command -v tabix >/dev/null 2>&1     || { echo "ERROR: tabix not found" >&2; exit 1; }
 
-mkdir -p "${output_dir}"
-unz_dir="${output_dir}/unzip"
-merge_dir="${output_dir}/merge"
+unz_dir="${output_dir}/unzipped"
+bcf_dir="${output_dir}/bcf"
 post_dir="${output_dir}/post"
-mkdir -p "${unz_dir}" "${merge_dir}" "${post_dir}"
+mkdir -p "${unz_dir}" "${bcf_dir}" "${post_dir}"
+rm -f "${bcf_dir}"/*.bcf "${bcf_dir}"/*.bcf.csi 2>/dev/null || true
 
-echo "[mis_postprocess] Unzipping chr_*.zip from ${input_dir}"
+echo "[mis_postprocess] Converting chr_*.zip to BCF"
 for zip_file in "${input_dir}"/chr_*.zip; do
   [[ -f "${zip_file}" ]] || continue
-  unzip -o "${zip_file}" -d "${unz_dir}" >/dev/null
-done
-
-find "${unz_dir}" -name "*.vcf.gz" | sort > "${merge_dir}/vcfs.list"
-if [[ ! -s "${merge_dir}/vcfs.list" ]]; then
-  echo "ERROR: No VCF files found after unzip. Check input directory." >&2
-  exit 1
-fi
-
-echo "[mis_postprocess] Concatenating chr1..chr22"
-merged_vcf="${merge_dir}/${prefix}.merged.vcf.gz"
-: > "${merge_dir}/chr_vcfs.list"
-for c in $(seq 1 22); do
-  v=$(grep -m1 -E "/chr[_-]?${c}[^/]*\.vcf\.gz$" "${merge_dir}/vcfs.list" || true)
-  if [[ -z "${v}" ]]; then
-    echo "ERROR: Missing chromosome ${c} VCF in ${merge_dir}/vcfs.list" >&2
+  if [[ -n "${zip_password}" ]]; then
+    unzip -P "${zip_password}" -o "${zip_file}" -d "${unz_dir}" >/dev/null
+  else
+    unzip -o "${zip_file}" -d "${unz_dir}" >/dev/null
+  fi
+  base=$(basename "${zip_file}" .zip)
+  chr=${base#chr_}
+  src="${unz_dir}/chr${chr}.dose.vcf.gz"
+  if [[ ! -f "${src}" ]]; then
+    echo "ERROR: expected file ${src} is missing" >&2
     exit 1
   fi
-  echo "${v}" >> "${merge_dir}/chr_vcfs.list"
+  bcftools view -Ob -o "${bcf_dir}/chr${chr}.bcf" "${src}"
+  bcftools index -f "${bcf_dir}/chr${chr}.bcf"
+  rm -f "${src}" "${unz_dir}/chr${chr}.info.gz"
 done
-bcftools concat -f "${merge_dir}/chr_vcfs.list" -Oz -o "${merged_vcf}"
-tabix -f -p vcf "${merged_vcf}"
+
+echo "[mis_postprocess] Concatenating chr1..chr22"
+merged_bcf="${post_dir}/${prefix}.merged.bcf"
+bcftools concat -Ob -o "${merged_bcf}" \
+  "${bcf_dir}"/chr1.bcf "${bcf_dir}"/chr2.bcf "${bcf_dir}"/chr3.bcf "${bcf_dir}"/chr4.bcf \
+  "${bcf_dir}"/chr5.bcf "${bcf_dir}"/chr6.bcf "${bcf_dir}"/chr7.bcf "${bcf_dir}"/chr8.bcf \
+  "${bcf_dir}"/chr9.bcf "${bcf_dir}"/chr10.bcf "${bcf_dir}"/chr11.bcf "${bcf_dir}"/chr12.bcf \
+  "${bcf_dir}"/chr13.bcf "${bcf_dir}"/chr14.bcf "${bcf_dir}"/chr15.bcf "${bcf_dir}"/chr16.bcf \
+  "${bcf_dir}"/chr17.bcf "${bcf_dir}"/chr18.bcf "${bcf_dir}"/chr19.bcf "${bcf_dir}"/chr20.bcf \
+  "${bcf_dir}"/chr21.bcf "${bcf_dir}"/chr22.bcf
+bcftools index -f "${merged_bcf}"
 
 echo "[mis_postprocess] Filtering INFO/R2 >= ${r2_min}"
 r2_vcf="${post_dir}/${prefix}.R2filt.vcf.gz"
-bcftools view -i "INFO/R2>=${r2_min}" -v snps -m2 -M2 -r chr1-chr22 "${merged_vcf}" -Ou \
+bcftools view -i "INFO/R2>=${r2_min}" -v snps -m2 -M2 "${merged_bcf}" -Ou \
   | bcftools sort -Oz -o "${r2_vcf}"
 tabix -f -p vcf "${r2_vcf}"
 
@@ -119,7 +127,7 @@ bcftools +fill-tags "${r2_vcf}" -Ou -- -t AF \
 tabix -f -p vcf "${maf_vcf}"
 
 printf "[mis_postprocess] Summary:\n"
-printf "  Samples: %s\n" "$(bcftools query -l "${maf_vcf}" | wc -l)"
+printf "  Samples: %s\n" "$(bcftools query -l "${r2_vcf}" | wc -l)"
 printf "  Variants after R2: %s\n" "$(bcftools view -H "${r2_vcf}" | wc -l)"
 printf "  Variants after R2+MAF: %s\n" "$(bcftools view -H "${maf_vcf}" | wc -l)"
 

@@ -35,7 +35,8 @@ docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '\
     --output-dir /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_post \
     --prefix     job1 \
     --r2-min     0.4 \
-    --maf-min    0.05'
+    --maf-min    0.0 \
+    --maf-max    1.0'
 
 # 4) Optional: subset post-imputed VCFs per pool (see README for helper snippet)
 
