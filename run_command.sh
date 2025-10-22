@@ -46,7 +46,12 @@ docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '\
     --lists-dir  /host/RDS/live/Users/Parisa/vcf_per_samplepool/lists \
     --output-dir /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_pools_fix'
 
-# 5) Run demultiplexing nextflow pipeline
+# 5) Sanity-check BAM/VCF/donor inputs before demuxlet
+docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '\
+  cd /host/RDS/live/Users/Parisa/Demultiplexing && \
+  ./scripts/check_demux_inputs.sh examples/samples.csv --path-map /home/pr422:/host'
+
+# 6) Run demultiplexing nextflow pipeline
 nextflow run main.nf -profile dsi \
   --samples "/home/pr422/RDS/live/Users/Parisa/Demultiplexing/examples/samples.csv" \
   --outdir  "/home/pr422/RDS/live/Users/Parisa/demux_out_nf" \

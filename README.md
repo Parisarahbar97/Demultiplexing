@@ -110,6 +110,56 @@ The script enforces biallelic SNPs, recreates `POOL.imputed.R2filt.vcf.gz`
 alongside `POOL.donors.txt`, and aborts if any expected donor is absent from
 the merged VCF so you can restore their genotypes before demultiplexing.
 
+### Refresh the sample sheet
+
+The repository now ships with `examples/samples.csv` covering all 26 pools and
+pointing at the regenerated imputed VCFs under
+`imputation_work/03_imputed/mis_job1_pools_fix/`. Regenerate it with the helper
+below whenever paths change:
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+import csv
+root = Path("/home/pr422/RDS/live/Users/Parisa/EPILEP/healthy/mapping/output")
+vcf_dir = Path("/home/pr422/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_pools_fix")
+donor_dir = Path("/home/pr422/RDS/live/Users/Parisa/vcf_per_samplepool/lists")
+rows = []
+for pool_dir in sorted(root.glob("*_mapped")):
+    sample = pool_dir.name[:-7]
+    donors = next((donor_dir / f"{sample}{suffix}" for suffix in ("_pool_donors.clean.txt", "_pool_donors.txt") if (donor_dir / f"{sample}{suffix}").exists()), None)
+    if not donors:
+        raise FileNotFoundError(f"Donor list for {sample}")
+    rows.append({
+        "sample": sample,
+        "bam": str(pool_dir / "outs/possorted_genome_bam.bam"),
+        "barcodes": str(pool_dir / "outs/filtered_feature_bc_matrix/barcodes.tsv.gz"),
+        "vcf": str(vcf_dir / f"{sample}.imputed.R2filt.vcf.gz"),
+        "sm_list": str(donors),
+    })
+sheet = Path("/home/pr422/RDS/live/Users/Parisa/Demultiplexing/examples/samples.csv")
+with sheet.open("w", newline="") as fh:
+    writer = csv.DictWriter(fh, fieldnames=rows[0].keys())
+    writer.writeheader()
+    writer.writerows(rows)
+print(f"Wrote {len(rows)} samples to {sheet}")
+PY
+```
+
+### Validate BAM/VCF inputs before demuxlet
+
+Run the new checker to confirm every BAM/VCF pair shares the same canonical
+contig naming and contains the expected donor IDs:
+
+```bash
+docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '\
+  cd /host/RDS/live/Users/Parisa/Demultiplexing && \
+  ./scripts/check_demux_inputs.sh examples/samples.csv --path-map /home/pr422:/host'
+```
+
+The script emits a table (one line per pool) and exits non-zero if any mismatch
+is detected.
+
 ## 4. Demultiplexing (existing workflow)
 
 Update `examples/samples.csv` to point to the imputed VCFs (GP/DS) and run:
@@ -138,6 +188,8 @@ scripts/
   run_plink_qc.sh        # Step 1 – per-pool PLINK2 QC
   mis_prepare.sh         # Step 2 – combine pools & emit chr slices
   mis_postprocess.sh     # Step 3 – merge/filter MIS outputs
+  mis_make_pool_vcfs.sh  # Regenerate four-donor pool VCFs from MIS output
+  check_demux_inputs.sh  # Sanity-check BAM/VCFs before demuxlet
 main.nf                  # Demultiplexing workflow
 nextflow.config          # Profiles and container definitions
 run_command.sh           # Ready-to-run command snippets
