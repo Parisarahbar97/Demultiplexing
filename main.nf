@@ -28,8 +28,7 @@ workflow {
     .map { sid, bam, barcodes, vcf, sm -> tuple(sid, bam, barcodes, sm) }
     .join(harm, by: 0)
     .map { sid, bam, barcodes, sm,
-           sid2, bamlike, bamlike_tbi, af, af_tbi, clean, clean_tbi ->
-      assert sid == sid2
+           bamlike, bamlike_tbi, af, af_tbi, clean, clean_tbi ->
       // choose files for downstream
       def vcf_for_pileup = (params.pileup_vcf == 'af') ? af : clean
       def vcf_for_demux  = (params.demux_vcf  == 'af') ? af : clean
@@ -48,8 +47,7 @@ workflow {
     .join(joined, by: 0)
     .map { sid,
            plp_plp, plp_var, plp_cel,
-           sid2, bam, barcodes, sm, vcf_p, vcf_d ->
-      assert sid == sid2
+           bam, barcodes, sm, vcf_p, vcf_d ->
       tuple(sid, plp_plp, plp_var, plp_cel, vcf_d, barcodes, sm)
     }
     | run_demuxlet
@@ -57,8 +55,7 @@ workflow {
   // 6) QC
   demux
     .join(ch_samples, by: 0)
-    .map { sid, best, sid2, bam, barcodes, vcf, sm ->
-      assert sid == sid2
+    .map { sid, best, bam, barcodes, vcf, sm ->
       tuple(sid, best, barcodes, sm)
     }
     | qc_demuxlet
