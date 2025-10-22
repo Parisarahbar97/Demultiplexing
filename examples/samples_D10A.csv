@@ -1,0 +1,2 @@
+sample,bam,barcodes,vcf,sm_list
+D10A,/home/pr422/RDS/live/Users/Parisa/EPILEP/healthy/mapping/output/D10A_mapped/outs/possorted_genome_bam.bam,/home/pr422/RDS/live/Users/Parisa/EPILEP/healthy/qc/output_latest/D10A/D10A_cellbender_output/cellbender_out_cell_barcodes.csv,/home/pr422/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_pools_fix/D10A.imputed.R2filt.vcf.gz,/home/pr422/RDS/live/Users/Parisa/vcf_per_samplepool/lists/D10A_pool_donors.txt
