@@ -12,6 +12,11 @@ process dsc_pileup {
         path("${sample_id}_pileup.cel.gz")
 
   script:
+  def pileup_opts = []
+  if( params.min_mapq != null )  pileup_opts << "--min-MAPQ ${params.min_mapq}"
+  if( params.min_baseq != null ) pileup_opts << "--min-BQ ${params.min_baseq}"
+  if( params.cap_bq   != null )  pileup_opts << "--cap-BQ ${params.cap_bq}"
+  def pileup_opts_str = pileup_opts.join(' ')
   """
   set -euo pipefail
   BC_TMP=\$(mktemp)
@@ -20,12 +25,13 @@ process dsc_pileup {
     *)    cp "$barcodes" "\$BC_TMP" ;;
   esac
 
-  popscle dsc-pileup \
-    --sam "$bam" \
-    --vcf "$vcf_for_pileup" \
-    --group-list "\$BC_TMP" \
-    --tag-group CB --tag-UMI UB \
-    --out "${sample_id}_pileup"
+  popscle dsc-pileup \\
+    --sam "$bam" \\
+    --vcf "$vcf_for_pileup" \\
+    --group-list "\$BC_TMP" \\
+    --tag-group "${params.tag_group}" \\
+    --tag-UMI "${params.tag_umi}" \\
+    --out "${sample_id}_pileup" ${pileup_opts_str}
 
   rm -f "\$BC_TMP"
   """

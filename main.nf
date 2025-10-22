@@ -11,7 +11,7 @@ workflow {
     .fromPath(params.samples)
     .splitCsv(header:true)
     .map { row ->
-      tuple( row.sample_id as String,
+      tuple( row.sample as String,
              file(row.bam),
              file(row.barcodes),
              file(row.vcf),
