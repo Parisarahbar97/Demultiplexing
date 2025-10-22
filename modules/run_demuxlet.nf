@@ -13,13 +13,22 @@ process run_demuxlet {
   script:
   """
   set -euo pipefail
-  PREFIX=\$(echo "${plp_plp.simpleName}" | sed 's/\\.plp\$//')
+  PREFIX="${sample_id}_pileup"
 
-  BC_TMP=\$(mktemp)
-  case "$barcodes" in
-    *.gz) gzip -cd "$barcodes" > "\$BC_TMP" ;;
-    *)    cp "$barcodes" "\$BC_TMP" ;;
-  esac
+ BC_TMP=$(mktemp)
+# Decompress if needed
+case "$barcodes" in
+  *.gz)  zcat "$barcodes" > "$BC_TMP.raw" ;;
+  *)     cat  "$barcodes" > "$BC_TMP.raw" ;;
+esac
+# If it looks like CSV with a header, strip header and first column only
+first_line=$(head -n1 "$BC_TMP.raw")
+if echo "$first_line" | grep -qi 'barcode'; then
+  awk -F'[,\t]' 'NR>1{print $1}' "$BC_TMP.raw" > "$BC_TMP"
+else
+  # Already 1 barcode per line
+  mv "$BC_TMP.raw" "$BC_TMP"
+fi
 
   popscle demuxlet \\
     --plp "\$PREFIX" \\
