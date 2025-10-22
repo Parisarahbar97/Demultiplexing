@@ -135,7 +135,7 @@ while IFS=, read -r sample bam barcodes vcf sm_list; do
       | awk '$1 != "*" && $1 ~ /^chr([1-9]|1[0-9]|2[0-2])$/{print $1}' \
       | sort -u > "${bam_contigs}"
     bcftools view -h "${vcf_path}" \
-      | awk -F'[=,]' '/^##contig=/{gsub(/ID=/,"",$2); if ($2 ~ /^chr([1-9]|1[0-9]|2[0-2])$/) print $2}' \
+      | awk '/^##contig=/{if (match($0,/ID=([^,>]+)/,m) && m[1] ~ /^chr([1-9]|1[0-9]|2[0-2])$/) print m[1]}' \
       | sort -u > "${vcf_contigs}"
 
     comm -23 "${bam_contigs}" "${vcf_contigs}" > "${diff_missing}"
