@@ -11,24 +11,24 @@ process run_demuxlet {
   tuple val(sample_id), path("demuxlet.best")
 
   script:
+  def prefix = plp_plp.simpleName.replaceFirst(/\.plp$/, '')
   """
   set -euo pipefail
-  PREFIX="${sample_id}_pileup"
+  PREFIX="${prefix}"
 
- BC_TMP=$(mktemp)
-# Decompress if needed
-case "$barcodes" in
-  *.gz)  zcat "$barcodes" > "$BC_TMP.raw" ;;
-  *)     cat  "$barcodes" > "$BC_TMP.raw" ;;
-esac
-# If it looks like CSV with a header, strip header and first column only
-first_line=$(head -n1 "$BC_TMP.raw")
-if echo "$first_line" | grep -qi 'barcode'; then
-  awk -F'[,\t]' 'NR>1{print $1}' "$BC_TMP.raw" > "$BC_TMP"
-else
-  # Already 1 barcode per line
-  mv "$BC_TMP.raw" "$BC_TMP"
-fi
+  BC_TMP=\$(mktemp)
+  # Decompress if needed
+  case "$barcodes" in
+    *.gz)  gzip -cd "$barcodes" > "\$BC_TMP.raw" ;;
+    *)     cat  "$barcodes" > "\$BC_TMP.raw" ;;
+  esac
+  # If it looks like CSV/TSV with a header, strip it and keep first column
+  first_line=\$(head -n1 "\$BC_TMP.raw")
+  if echo "\$first_line" | grep -qi 'barcode'; then
+    awk -F'[,\t]' 'NR>1{print \$1}' "\$BC_TMP.raw" > "\$BC_TMP"
+  else
+    mv "\$BC_TMP.raw" "\$BC_TMP"
+  fi
 
   popscle demuxlet \\
     --plp "\$PREFIX" \\
@@ -39,6 +39,6 @@ fi
     --doublet-prior ${params.doublet_prior} \\
     --out demuxlet
 
-  rm -f "\$BC_TMP"
+  rm -f "\$BC_TMP" "\$BC_TMP.raw"
   """
 }

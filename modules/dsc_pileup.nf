@@ -42,6 +42,6 @@ fi
     --tag-UMI "${params.tag_umi}" \\
     --out "${sample_id}_pileup" ${pileup_opts_str}
 
-  rm -f "\$BC_TMP"
+  rm -f "\$BC_TMP" "\$BC_TMP.raw"
   """
 }

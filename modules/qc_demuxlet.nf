@@ -16,6 +16,18 @@ process qc_demuxlet {
   BARCODES="$barcodes"
   SM_LIST="$sm_list"
 
+  BC_TMP=$(mktemp)
+  case "$BARCODES" in
+    *.gz)  gzip -cd "$BARCODES" > "$BC_TMP.raw" ;;
+    *)     cat  "$BARCODES" > "$BC_TMP.raw" ;;
+  esac
+  first_line=$(head -n1 "$BC_TMP.raw")
+  if echo "$first_line" | grep -qi 'barcode'; then
+    awk -F'[,\t]' 'NR>1{print $1}' "$BC_TMP.raw" > "$BC_TMP"
+  else
+    mv "$BC_TMP.raw" "$BC_TMP"
+  fi
+
   {
     echo -e "donor\tsinglets\tdoublets_as_d1\tdoublets_as_d2\tdoublets_total"
     tail -n +2 "$BEST" | awk -F'\\t' '
@@ -27,9 +39,9 @@ process qc_demuxlet {
 
   {
     echo "rows_vs_barcodes"
-    echo -n "barcodes "; zcat "$BARCODES" | wc -l
+    echo -n "barcodes "; wc -l < "$BC_TMP"
     echo -n "best_rows "; awk 'END{print NR-1}' "$BEST"
-    echo -n "overlap   "; comm -12 <(tail -n +2 "$BEST" | cut -f2 | sort) <(zcat "$BARCODES" | sort) | wc -l
+    echo -n "overlap   "; comm -12 <(tail -n +2 "$BEST" | cut -f2 | sort) <(sort "$BC_TMP") | wc -l
     echo
     echo "status_counts"
     tail -n +2 "$BEST" | awk -F'\\t' '{c[\$5]++} END{for(k in c) printf "%s\\t%d\\n",k,c[k]}' | sort
@@ -46,5 +58,7 @@ process qc_demuxlet {
     echo "expected_but_NOT_seen:"; comm -13 donors_found.txt <(sort "$SM_LIST") || true
     echo "seen_but_NOT_expected:"; comm -23 donors_found.txt <(sort "$SM_LIST") || true
   } > QC_summary.txt
+
+  rm -f "$BC_TMP" "$BC_TMP.raw" donors_found.txt
   """
 }
