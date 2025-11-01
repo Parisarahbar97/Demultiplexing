@@ -14,8 +14,11 @@ for f in "$BAM" "$VCF" "$BARCODES"; do
   [ -f "$f" ] || { echo "Missing input: $f" >&2; exit 1; }
 done
 
+THREADS=${THREADS:-40}
+
 docker run --rm -u "$(id -u)":"$(id -g)" \
   -v "$HOST":"$HOST" \
+  -e OMP_NUM_THREADS="$THREADS" \
   --entrypoint /opt/conda/bin/popscle \
   parisa/demux:2.1 dsc-pileup \
     --sam        "$BAM" \
@@ -28,4 +31,4 @@ docker run --rm -u "$(id -u)":"$(id -g)" \
     --cap-BQ     40 \
     --out        "$OUTPFX"
 
-echo "Pileup written: ${OUTPFX}.{plp,var,umi,cel}.gz"
+echo "Pileup written: ${OUTPFX}.{plp,var,umi,cel}.gz using $THREADS threads"
