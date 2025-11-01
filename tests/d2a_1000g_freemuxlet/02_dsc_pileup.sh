@@ -6,7 +6,7 @@ set -euo pipefail
 HOST=/home/pr422
 OUTDIR=$HOST/RDS/live/Users/Parisa/demux_manual/D2A_1000G_freemuxlet_test
 BAM=$HOST/RDS/live/Users/Parisa/EPILEP/healthy/mapping/output/D2A_mapped/outs/possorted_genome_bam.bam
-VCF=$OUTDIR/1000G_sites.vcf.gz
+VCF=$OUTDIR/1000G_sites.bamorder.vcf.gz
 BARCODES=$OUTDIR/D2A.barcodes.txt
 OUTPFX=$OUTDIR/D2A_1000G_pileup
 
