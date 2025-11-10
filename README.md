@@ -1,199 +1,110 @@
-# Demultiplexing & Genotype Imputation Workflow
+# Manual Demultiplexing Toolkit
 
-This repository now captures the full genotype → imputation → demultiplexing
-pipeline that we iterated on manually.  The workflow is split into three
-logical phases:
+This repository now tracks the lean, manual workflow we settled on while
+processing the epileptic snRNA-seq pools. The pipeline is intentionally simple
+(no Nextflow) and mirrors the steps we validated on D2A/D13A:
 
-1. **Pre-imputation QC (PLINK2 + bcftools)** – produces clean per-pool VCFs.
-2. **MIS preparation / post-processing** – combines pools, prepares per-chr
-   upload files, and merges MIS results after imputation.
-3. **Demultiplexing** – existing Nextflow pipeline (`main.nf`) that runs
-   `harmonize_vcf_bam`, `dsc_pileup`, `demuxlet`, and QC.
+1. build a trustworthy barcode whitelist (CellBender → 1 line per barcode)
+2. ensure the donor VCF uses the same contig order as the BAM
+3. run `dsc-pileup` (CB/UB, MQ ≥30, BQ ≥20, cap 40) to collect SNP counts
+4. run freemuxlet as a sanity check (discover true donor count K, DBL rate)
+5. run demuxlet with the correct donor panel to obtain named assignments
+6. generate QC summaries + the final metadata file (Barcode ↔ Individual_ID)
 
-All heavy lifting happens inside the `Docker/Dockerfile.impute` image which
-contains PLINK 2, PLINK 1.9, bcftools, samtools, unzip, pigz, gawk, etc.
+All heavy lifting happens inside two Docker images that you already use:
 
-## 0. Build the helper image
+- `parisa/demux:2.1` – popscle (dsc-pileup / freemuxlet / demuxlet)
+- `parisa/genotype:2.6` – bcftools, samtools, awk helpers
 
-```bash
-cd Docker
-docker build -t parisa/genotype:impute -f Dockerfile.impute .
-```
+Set `HOST_ROOT=/home/pr422` (or export it once) so the scripts know how to
+mount the filesystem inside Docker.
 
-## 1. Pre-imputation QC
+## Scripts
 
-Input manifest: one VCF per line (absolute paths), e.g.
-`imputation_work/00_raw/vcf_manifest.txt`.
+| Script | Purpose |
+| --- | --- |
+| `scripts/01_make_whitelist.sh` | header-safe whitelist from `cellbender_out_cell_barcodes.csv` |
+| `scripts/02_reheader_vcf.sh` | reorder a pool VCF to match the BAM header |
+| `scripts/03_run_pileup.sh` | run popscle `dsc-pileup` with CB/UB tags |
+| `scripts/04_run_freemuxlet.sh` | run freemuxlet for `K=3,4,5` (configurable) |
+| `scripts/05_run_demuxlet.sh` | run popscle `demuxlet` with realistic priors |
+| `scripts/06_qc_demuxlet.sh` | produce QC summaries + eQTL-ready assignments |
 
-```bash
-docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '
-  cd /host/RDS/live/Users/Parisa/Demultiplexing &&
-  ./scripts/run_plink_qc.sh \
-    --manifest /host/RDS/live/Users/Parisa/imputation_work/00_raw/vcf_manifest.txt \
-    --outdir   /host/RDS/live/Users/Parisa/imputation_work/01_plink_qc \
-    --logdir   /host/RDS/live/Users/Parisa/imputation_work/logs \
-    --threads  8'
-```
+Each script has `--help` describing the arguments. They are designed to be run
+independently so you can stop, inspect outputs, and iterate before moving on.
 
-Outputs (`imputation_work/01_plink_qc/`):
-
-- `POOL.pgen/.pvar/.psam` – PLINK 2 binary dataset.
-- `POOL.qcmetrics.smiss/acount` – basic QC tables.
-- `POOL.clean.vcf.gz` – autosomal, biallelic, MAC ≥ 1 SNPs (used downstream).
-
-## 2. Prepare MIS upload set (GRCh38)
-
-Combine all pools, keep a single copy of each donor, merge, and slice by chr.
+## Quick-start (S1A example)
 
 ```bash
-docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '
-  cd /host/RDS/live/Users/Parisa/Demultiplexing &&
-  ./scripts/mis_prepare.sh \
-    --input-dir  /host/RDS/live/Users/Parisa/imputation_work/01_plink_qc \
-    --output-dir /host/RDS/live/Users/Parisa/imputation_work/02_mis_prep \
-    --threads    4'
+POOL=S1A
+HOST_ROOT=/home/pr422
+WD=$HOST_ROOT/RDS/live/Users/Parisa/demux_manual/$POOL/run1
+mkdir -p "$WD"
+
+# 1. whitelist
+a=$HOST_ROOT/RDS/live/Users/Parisa/EPILEP/diseased/qc/output_latest/$POOL/${POOL}_cellbender_output/cellbender_out_cell_barcodes.csv
+scripts/01_make_whitelist.sh --cellbender "$a" --out "$WD/${POOL}.barcodes.txt"
+
+# 2. reheader VCF to BAM order (writes ${POOL}.bamorder.vcf.gz)
+v=$HOST_ROOT/RDS/live/Users/Parisa/alex_output/epilep_cellranger_outputs/demuxlet_IO/genotype_inputs/${POOL}.vcf.gz
+b=$HOST_ROOT/RDS/live/Users/Parisa/alex_output/epilep_cellranger_outputs/${POOL}_mapped/outs/possorted_genome_bam.bam
+scripts/02_reheader_vcf.sh --vcf "$v" --bam "$b" --out "$WD/${POOL}.bamorder.vcf.gz"
+
+# 3. pileup
+scripts/03_run_pileup.sh \
+  --sample "$POOL" \
+  --bam "$b" \
+  --vcf "$WD/${POOL}.bamorder.vcf.gz" \
+  --barcodes "$WD/${POOL}.barcodes.txt" \
+  --outdir "$WD"
+
+# 4. freemuxlet sanity check
+scripts/04_run_freemuxlet.sh \
+  --plp "$WD/${POOL}_pileup" \
+  --barcodes "$WD/${POOL}.barcodes.txt" \
+  --outdir "$WD"
+# Inspect singlet/doublet counts; decide on the correct K and roster.
+
+# 5. demuxlet (adjust priors/filters as needed)
+scripts/05_run_demuxlet.sh \
+  --plp "$WD/${POOL}_pileup" \
+  --vcf "$WD/${POOL}.bamorder.vcf.gz" \
+  --barcodes "$WD/${POOL}.barcodes.txt" \
+  --outdir "$WD/${POOL}_demuxlet" \
+  --doublet-prior 0.05 \
+  --min-total 80 --min-umi 40 --min-snp 30
+
+# 6. QC + final metadata (Barcode, Individual_Assignment, droplet type)
+scripts/06_qc_demuxlet.sh \
+  --best "$WD/${POOL}_demuxlet/demuxlet.best" \
+  --barcodes "$WD/${POOL}.barcodes.txt" \
+  --pool "$POOL" \
+  --outdir "$WD/${POOL}_demuxlet" \
+  --assignments "$WD/${POOL}_demuxlet/${POOL}_assignments.tsv"
+
+# Append assignments to the master file when satisfied:
+#   cat ${POOL}_assignments.tsv >> /home/pr422/RDS/live/Users/Parisa/parisa_eqtl/demultiplexed_assignments/demuxlet_assignments.txt
 ```
 
-Outputs (`imputation_work/02_mis_prep/`):
+## Notes & best practices
 
-- `unique_vcfs.list`, `vcf_unique_manifest.tsv` – provenance of retained donors.
-- `all_donors.samples.txt` – combined donor list (64 in our case).
-- `all_donors.hg38.chr.vcf.gz` – merged multi-sample VCF.
-- `by_chrom/all_donors.chr{1..22}.vcf.gz` (+ `.tbi`) – upload these to the
-  Michigan Imputation Server (GRCh38 panel, e.g. 1000g-phase3-low).
+- **Whitelist must be non-empty.** If `01_make_whitelist.sh` reports zero
+  barcodes, stop and inspect the CellBender output.
+- **Keep the full imputed SNP set.** Do not filter sites with AC>0 across the
+  small pool—doing so previously halved useful evidence and made demuxlet label
+  most cells as doublets. Only reheader; do not drop variants unless you later
+  create a polymorphic-only VCF on purpose.
+- **Run freemuxlet on every pool.** It’s the fastest way to discover missing
+  donors, wrong K, or poor pileups. If freemuxlet and demuxlet disagree, fix
+  the roster (subset the merged MIS VCF to the donors freemuxlet found) and
+  rerun.
+- **UMI tag:** popscle expects UB for 10x data. Use `--tag-UMI UR` only if
+  logs show “Cannot find UMI tag UB”.
+- **Assignments format:** `06_qc_demuxlet.sh --assignments` produces the exact
+  column order used by the eQTL workflow (`"Barcode" "Individual_Assignment"
+  "Demuxlet_droplet_type"`). Load this table into Seurat metadata to add the
+  `Individual_ID` column.
 
-**Manual step:** upload the 22 `.vcf.gz` files (and their `.tbi`) via your MIS
-account. Choose an hg38 panel (e.g. `1000g-phase3-low (hg38)`), Eagle v2.4
-prephasing, and Minimac4.
-
-## 3. Post-imputation QC (after MIS download)
-
-Point the script at the folder containing `chr_*.zip` from MIS. The helper
-converts each chromosome archive to BCF (for robust concatenation), merges
-them, applies the INFO/R2 filter, and optionally enforces an AF window.
-
-```bash
-docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '
-  cd /host/RDS/live/Users/Parisa/Demultiplexing &&
-  ./scripts/mis_postprocess.sh \
-    --input-dir  /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_raw \
-    --output-dir /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_post \
-    --prefix     job1 \
-    --r2-min     0.4 \
-    --maf-min    0.0 \
-    --maf-max    1.0'
-```
-
-Outputs (example: `imputation_work/03_imputed/mis_job1_post/post/`):
-
-- `job1.merged.bcf` – concatenated chr1..22 BCF.
-- `job1.R2filt.vcf.gz` – INFO/R2 filtered autosomal SNPs (no AF window).
-- `job1.R2filt.MAF.vcf.gz` – optional AF-filtered VCF (useful if you impose an
-  AF window via `--maf-min/--maf-max`).
-
-### Required: rebuild per-pool VCFs for demuxlet
-
-Always subset the final merged MIS VCF with the true donor lists for each pool;
-otherwise demuxlet will misassign reads if a donor is missing. A helper script
-now lives in `scripts/mis_make_pool_vcfs.sh`:
-
-```bash
-docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '\
-  cd /host/RDS/live/Users/Parisa/Demultiplexing && \
-  ./scripts/mis_make_pool_vcfs.sh \
-    --merged-vcf /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_post/post/job1.R2filt.vcf.gz \
-    --lists-dir  /host/RDS/live/Users/Parisa/vcf_per_samplepool/lists \
-    --output-dir /host/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_pools_fix'
-```
-
-The script enforces biallelic SNPs, recreates `POOL.imputed.R2filt.vcf.gz`
-alongside `POOL.donors.txt`, and aborts if any expected donor is absent from
-the merged VCF so you can restore their genotypes before demultiplexing.
-
-### Refresh the sample sheet
-
-The repository now ships with `examples/samples.csv` covering all 26 pools and
-pointing at the regenerated imputed VCFs under
-`imputation_work/03_imputed/mis_job1_pools_fix/`. Regenerate it with the helper
-below whenever paths change:
-
-```bash
-python3 - <<'PY'
-from pathlib import Path
-import csv
-root = Path("/home/pr422/RDS/live/Users/Parisa/EPILEP/healthy/mapping/output")
-vcf_dir = Path("/home/pr422/RDS/live/Users/Parisa/imputation_work/03_imputed/mis_job1_pools_fix")
-donor_dir = Path("/home/pr422/RDS/live/Users/Parisa/vcf_per_samplepool/lists")
-rows = []
-for pool_dir in sorted(root.glob("*_mapped")):
-    sample = pool_dir.name[:-7]
-    donors = next((donor_dir / f"{sample}{suffix}" for suffix in ("_pool_donors.clean.txt", "_pool_donors.txt") if (donor_dir / f"{sample}{suffix}").exists()), None)
-    if not donors:
-        raise FileNotFoundError(f"Donor list for {sample}")
-    rows.append({
-        "sample": sample,
-        "bam": str(pool_dir / "outs/possorted_genome_bam.bam"),
-        "barcodes": str(pool_dir / "outs/filtered_feature_bc_matrix/barcodes.tsv.gz"),
-        "vcf": str(vcf_dir / f"{sample}.imputed.R2filt.vcf.gz"),
-        "sm_list": str(donors),
-    })
-sheet = Path("/home/pr422/RDS/live/Users/Parisa/Demultiplexing/examples/samples.csv")
-with sheet.open("w", newline="") as fh:
-    writer = csv.DictWriter(fh, fieldnames=rows[0].keys())
-    writer.writeheader()
-    writer.writerows(rows)
-print(f"Wrote {len(rows)} samples to {sheet}")
-PY
-```
-
-### Validate BAM/VCF inputs before demuxlet
-
-Run the new checker to confirm every BAM/VCF pair shares the same canonical
-contig naming and contains the expected donor IDs:
-
-```bash
-docker run --rm -v /home/pr422:/host parisa/genotype:impute bash -lc '\
-  cd /host/RDS/live/Users/Parisa/Demultiplexing && \
-  ./scripts/check_demux_inputs.sh examples/samples.csv --path-map /home/pr422:/host'
-```
-
-The script emits a table (one line per pool) and exits non-zero if any mismatch
-is detected.
-
-## 4. Demultiplexing (existing workflow)
-
-Update `examples/samples.csv` to point to the imputed VCFs (GP/DS) and run:
-
-```bash
-nextflow run main.nf -profile dsi \
-  --samples /home/pr422/RDS/live/Users/Parisa/Demultiplexing/examples/samples.csv \
-  --outdir  /home/pr422/RDS/live/Users/Parisa/demux_out_nf \
-  -with-report -with-timeline -with-trace
-```
-
-The pipeline stages are unchanged (`harmonize_vcf_bam`, `dsc_pileup`,
-`run_demuxlet`, `qc_demuxlet`), but you can now feed high-quality imputed VCFs
-with GP/DS instead of hard calls.
-
-## Repo structure highlights
-
-```
-Docker/
-  Dockerfile.impute      # PLINK2 + bcftools + helper utilities
-examples/
-  samples.csv            # Sample sheet used by main.nf
-modules/
-  *.nf                   # Nextflow DSL2 modules (harmonize, pileup, demuxlet, QC)
-scripts/
-  run_plink_qc.sh        # Step 1 – per-pool PLINK2 QC
-  mis_prepare.sh         # Step 2 – combine pools & emit chr slices
-  mis_postprocess.sh     # Step 3 – merge/filter MIS outputs
-  mis_make_pool_vcfs.sh  # Regenerate four-donor pool VCFs from MIS output
-  check_demux_inputs.sh  # Sanity-check BAM/VCFs before demuxlet
-main.nf                  # Demultiplexing workflow
-nextflow.config          # Profiles and container definitions
-run_command.sh           # Ready-to-run command snippets
-```
-
-Feel free to tailor thresholds (`--r2-min`, `--maf-min`) or add extra QC
-steps (e.g. HWE post-imputation) depending on the downstream analysis.
+This repo intentionally focuses on the demultiplexing steps we actually use
+now. The older PLINK/MIS helpers and Nextflow workflow were removed so the
+instructions stay small and repeatable.
