@@ -1,8 +1,5 @@
 # Manual Demultiplexing Toolkit
-
-This repository now tracks the lean, manual workflow we settled on while
-processing the epileptic snRNA-seq pools. The pipeline is intentionally simple
-(no Nextflow) and mirrors the steps we validated on D2A/D13A:
+Demultiplex the epileptic snRNA‑seq pools and produce “Barcode → Individual_ID” metadata. 
 
 1. build a trustworthy barcode whitelist (CellBender → 1 line per barcode)
 2. ensure the donor VCF uses the same contig order as the BAM
@@ -11,7 +8,7 @@ processing the epileptic snRNA-seq pools. The pipeline is intentionally simple
 5. run demuxlet with the correct donor panel to obtain named assignments
 6. generate QC summaries + the final metadata file (Barcode ↔ Individual_ID)
 
-All heavy lifting happens inside two Docker images that you already use:
+All heavy lifting happens inside two Docker images that i already use:
 
 - `parisa/demux:2.1` – popscle (dsc-pileup / freemuxlet / demuxlet)
 - `parisa/genotype:2.6` – bcftools, samtools, awk helpers
