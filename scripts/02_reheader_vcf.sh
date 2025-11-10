@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help) show_help; exit 0 ;;
     *) echo "[ERROR] Unknown arg: $1" >&2; show_help >&2; exit 1 ;;
   esac
-endone
+done
 
 if [[ -z "$VCF" || -z "$BAM" || -z "$OUT" ]]; then
   echo "[ERROR] --vcf, --bam, and --out are required" >&2
@@ -42,57 +42,70 @@ if [[ -z "$VCF" || -z "$BAM" || -z "$OUT" ]]; then
   exit 1
 fi
 
-for f in "$VCF" "$VCF".tbi "$BAM" "$BAM".bai; do
-  if [[ ! -f "$f" ]]; then
-    echo "[ERROR] Missing file: $f" >&2
-    exit 1
-  fi
-endone
+if [[ ! -f "$VCF" ]]; then
+  echo "[ERROR] Missing VCF: $VCF" >&2
+  exit 1
+fi
+
+if [[ -f "$VCF.tbi" ]]; then
+  VCF_IDX="$VCF.tbi"
+elif [[ -f "$VCF.csi" ]]; then
+  VCF_IDX="$VCF.csi"
+else
+  echo "[ERROR] Missing VCF index (.tbi or .csi) for $VCF" >&2
+  exit 1
+fi
+
+if [[ ! -f "$BAM" || ! -f "$BAM.bai" ]]; then
+  echo "[ERROR] Missing BAM or BAM index for $BAM" >&2
+  exit 1
+fi
 
 mkdir -p "$(dirname "$OUT")"
 
-read -r -d '' CMD <<SCRIPT
+read -r -d '' CMD <<'SCRIPT'
 set -euo pipefail
 IN_VCF="$VCF"
+IN_VCF_IDX="$VCF_IDX"
 IN_BAM="$BAM"
 OUT_VCF="$OUT"
-TMP_DIR=\$(mktemp -d)
-trap 'rm -rf "\$TMP_DIR"' EXIT
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-> "\$TMP_DIR/contigs.tsv"
+> "$TMP_DIR/contigs.tsv"
 while IFS=$'\t' read -r -a fields; do
-  if [[ \\${fields[0]} == "@SQ" ]]; then
+  label=${fields[0]:-}
+  if [[ $label == "@SQ" ]]; then
     contig=""; length=""
-    for field in "\\${fields[@]:1}"; do
-      case \\$field in
-        SN:*) contig=\\${field#SN:} ;;
-        LN:*) length=\\${field#LN:} ;;
+    for field in "${fields[@]:1}"; do
+      case $field in
+        SN:*) contig=${field#SN:} ;;
+        LN:*) length=${field#LN:} ;;
       esac
     done
-    if [[ -n \$contig ]]; then
-      [[ -z \$length ]] && length=1
-      printf '%s\t%s\n' "\$contig" "\$length" >> "\$TMP_DIR/contigs.tsv"
+    if [[ -n $contig ]]; then
+      [[ -z $length ]] && length=1
+      printf '%s\t%s\n' "$contig" "$length" >> "$TMP_DIR/contigs.tsv"
     fi
   fi
-done < <(samtools view -H "\$IN_BAM")
+done < <(samtools view -H "$IN_BAM")
 
-awk '{print "##contig=<ID=" $1 ",length=" $2 ">"}' "\$TMP_DIR/contigs.tsv" > "\$TMP_DIR/contigs_header.txt"
+awk '{print "##contig=<ID=" $1 ",length=" $2 ">"}' "$TMP_DIR/contigs.tsv" > "$TMP_DIR/contigs_header.txt"
 
-bcftools view -h "\$IN_VCF" > "\$TMP_DIR/orig_header.txt"
+bcftools view -h "$IN_VCF" > "$TMP_DIR/orig_header.txt"
 
 awk 'NR==FNR {contig_lines[++n]=$0; next} /^##contig=/ {next} /^#CHROM/ {for(i=1;i<=n;i++) print contig_lines[i]; print $0; next} {print}' \
-  "\$TMP_DIR/contigs_header.txt" "\$TMP_DIR/orig_header.txt" > "\$TMP_DIR/new_header.txt"
+  "$TMP_DIR/contigs_header.txt" "$TMP_DIR/orig_header.txt" > "$TMP_DIR/new_header.txt"
 
-bcftools index -f "\$IN_VCF"
-cp "\$IN_VCF" "\$TMP_DIR/input.vcf.gz"
-cp "\$IN_VCF".csi "\$TMP_DIR/input.vcf.gz.csi" 2>/dev/null || true
-cp "\$IN_VCF".tbi "\$TMP_DIR/input.vcf.gz.tbi" 2>/dev/null || true
+bcftools index -f "$IN_VCF"
+cp "$IN_VCF" "$TMP_DIR/input.vcf.gz"
+cp "$IN_VCF_IDX" "$TMP_DIR/input.vcf.gz.$(basename "$IN_VCF_IDX" | sed 's/.*\.//')" 2>/dev/null || true
 
-bcftools reheader -h "\$TMP_DIR/new_header.txt" "\$TMP_DIR/input.vcf.gz" -o "\$TMP_DIR/reheader.vcf.gz"
-tabix -f -p vcf "\$TMP_DIR/reheader.vcf.gz"
+bcftools reheader -h "$TMP_DIR/new_header.txt" "$TMP_DIR/input.vcf.gz" -o "$TMP_DIR/reheader.vcf.gz"
+tabix -f -p vcf "$TMP_DIR/reheader.vcf.gz"
 
-bcftools sort -O z -o "\$OUT_VCF" "\$TMP_DIR/reheader.vcf.gz"
-tabix -f -p vcf "\$OUT_VCF"
+bcftools sort -O z -o "$OUT_VCF" "$TMP_DIR/reheader.vcf.gz"
+tabix -f -p vcf "$OUT_VCF"
 SCRIPT
 
 # shellcheck disable=SC2086
