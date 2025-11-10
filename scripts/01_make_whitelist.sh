@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
       show_help >&2
       exit 1 ;;
   esac
-endone
+done
 
 if [[ -z "$CELLBENDER" || -z "$OUT" ]]; then
   echo "[ERROR] --cellbender and --out are required" >&2
