@@ -101,11 +101,11 @@ if [[ -n "$ASSIGN" ]]; then
   mkdir -p "$(dirname "$ASSIGN")"
   {
     echo '"Barcode" "Individual_Assignment" "Demuxlet_droplet_type"'
-    tail -n +2 "$BEST" | awk -F'\t' -v pool="$POOL" '
-      split($6,a,",")
-      if($5=="DBL") donor=a[1] "/" a[2]; else donor=a[1]
+    tail -n +2 "$BEST" | awk -F'\t' -v pool="$POOL" '{
+      split($6,a,",");
+      donor = ($5=="DBL") ? a[1] "/" a[2] : a[1];
       printf "\"%s_%s\" \"%s\" \"%s\"\n", pool, $2, donor, $5
-    '
+    }'
   } > "$ASSIGN"
   echo "[INFO] assignments written to $ASSIGN"
 fi
