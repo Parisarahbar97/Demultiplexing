@@ -63,7 +63,9 @@ fi
 
 mkdir -p "$(dirname "$OUT")"
 
-read -r -d '' CMD <<'SCRIPT'
+export VCF BAM OUT VCF_IDX
+
+read -r -d '' CMD <<'SCRIPT' || true
 set -euo pipefail
 IN_VCF="$VCF"
 IN_VCF_IDX="$VCF_IDX"
@@ -109,6 +111,13 @@ tabix -f -p vcf "$OUT_VCF"
 SCRIPT
 
 # shellcheck disable=SC2086
-docker run --rm -u $(id -u):$(id -g) -v "$HOST_ROOT":"$HOST_ROOT" "$IMAGE" bash -lc "$CMD"
+docker run --rm \
+  -u $(id -u):$(id -g) \
+  -e VCF="$VCF" \
+  -e VCF_IDX="$VCF_IDX" \
+  -e BAM="$BAM" \
+  -e OUT="$OUT" \
+  -v "$HOST_ROOT":"$HOST_ROOT" \
+  "$IMAGE" bash -lc "$CMD"
 
 echo "[INFO] Wrote $OUT"
