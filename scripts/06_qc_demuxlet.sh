@@ -100,11 +100,11 @@ echo "[INFO] donor QC written to $OUTDIR/donor_QC.tsv"
 if [[ -n "$ASSIGN" ]]; then
   mkdir -p "$(dirname "$ASSIGN")"
   {
-    echo '"Barcode" "Individual_Assignment" "Demuxlet_droplet_type"'
+    printf "Barcode\tIndividual_Assignment\tDemuxlet_droplet_type\n"
     tail -n +2 "$BEST" | awk -F'\t' -v pool="$POOL" '{
       split($6,a,",");
       donor = ($5=="DBL") ? a[1] "/" a[2] : a[1];
-      printf "\"%s_%s\" \"%s\" \"%s\"\n", pool, $2, donor, $5
+      printf "%s_%s\t%s\t%s\n", pool, $2, donor, $5
     }'
   } > "$ASSIGN"
   echo "[INFO] assignments written to $ASSIGN"
