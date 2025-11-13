@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help) show_help; exit 0 ;;
     *) echo "[ERROR] Unknown arg: $1" >&2; show_help >&2; exit 1 ;;
   esac
-endone
+done
 
 for var in PLP VCF BARCODES OUTDIR; do
   if [[ -z "${!var}" ]]; then

@@ -26,6 +26,8 @@ mount the filesystem inside Docker.
 | `scripts/04_run_freemuxlet.sh` | run freemuxlet for `K=3,4,5` (configurable) |
 | `scripts/05_run_demuxlet.sh` | run popscle `demuxlet` with realistic priors |
 | `scripts/06_qc_demuxlet.sh` | produce QC summaries + eQTL-ready assignments |
+| `scripts/demuxlet_popvcf/01_run_pileup_1000G.sh` | dsc-pileup using a population site list (e.g., GRCh38 1000G) |
+| `scripts/demuxlet_popvcf/02_run_demuxlet_sweep.sh` | demuxlet GT sweep over fixed geno-error offsets on the population pileup |
 
 Each script has `--help` describing the arguments. They are designed to be run
 independently so you can stop, inspect outputs, and iterate before moving on.
@@ -105,3 +107,21 @@ scripts/06_qc_demuxlet.sh \
 This repo intentionally focuses on the demultiplexing steps we actually use
 now. The older PLINK/MIS helpers and Nextflow workflow were removed so the
 instructions stay small and repeatable.
+
+## Current S2A status (Nov 2025)
+
+- **Demuxlet (GT mode, BAM-ordered donor VCF, filters `--min-total 250 --min-umi 100 --min-snp 150`, `--doublet-prior 0.05`, `--geno-error 0.01`):**  
+  Because we raise the coverage thresholds, demuxlet.best contains **7,620 singlets** and **4,565 doublets**. All singlets have `SNG.POSTERIOR = 1`, ≥200 reads, ≥200 SNPs.
+- **Freemuxlet sanity check (same pileup):**  
+  With `--nsample 2`, freemuxlet finds **14,461 singlets** and **545 doublets**, i.e. two very clean donor clusters plus the expected mixed cluster `1+0`.
+- **Consensus HC singlets (demuxlet ∩ freemuxlet)**:  
+  We intersected demuxlet singlets with freemuxlet singlets, mapped clusters → donors by majority vote (cluster 0 → N993/15, cluster 1 → N508/10), and required ≥100 SNPs, ≥100 reads, `SNG.POSTERIOR ≥ 0.9`.  
+  Output folder: `/home/pr422/RDS/live/Users/Parisa/demux_manual/S2A/run1/S2A_consensus_HC/`  
+  Result: **7,616 barcodes** (N993/15=5,286; N508/10=2,330) plus eQTL table `S2A_assignments_eQTL.tsv`. This is the precision-first donor list for downstream eQTL analysis.
+- **Population-VCF sensitivity (in progress)**:  
+  We reheadered the GRCh38 1000G common-site VCF to the BAM order and created `scripts/demuxlet_popvcf/` to run `dsc-pileup` and a demuxlet geno-error sweep on that VAR. Commands are logged in `scripts/demuxlet_popvcf/run_commands_S2A_1000G.md`. Pileup is running now with `OMP_NUM_THREADS=40`; once it finishes, rerun demuxlet via `02_run_demuxlet_sweep.sh` and compare singlet/doublet counts across geno-error offsets (0.01–0.05).
+
+These checkpoints give you three tiers to work with:
+1. **Demuxlet full run** – highest recall, but DBL-heavy.
+2. **Freemuxlet SNG** – confirms donor count / doublet rate.
+3. **Consensus HC** – the conservative assignments for eQTL metadata.
