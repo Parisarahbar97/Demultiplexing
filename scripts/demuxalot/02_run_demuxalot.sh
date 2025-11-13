@@ -42,6 +42,7 @@ CELL_TAG=CB
 UMI_TAG=UB
 REFINE=true
 CONTAINER=${DEMUXAFY_SIF:-}
+SING_BIN=${SINGULARITY_BIN:-}
 HOST_ROOT=${HOST_ROOT:-/home/pr422}
 
 while [[ $# -gt 0 ]]; do
@@ -93,6 +94,17 @@ if [[ -z "$CONTAINER" || ! -f "$CONTAINER" ]]; then
   exit 1
 fi
 
+if [[ -z "$SING_BIN" ]]; then
+  if command -v singularity >/dev/null 2>&1; then
+    SING_BIN=$(command -v singularity)
+  elif command -v apptainer >/dev/null 2>&1; then
+    SING_BIN=$(command -v apptainer)
+  else
+    echo "[ERROR] Neither singularity nor apptainer is available; install one or set SINGULARITY_BIN." >&2
+    exit 1
+  fi
+fi
+
 mkdir -p "$OUTDIR"
 
 REFINE_ARG="True"
@@ -116,5 +128,5 @@ CMD=(Demuxalot.py
 [[ -n "$UMI_TAG" ]] && CMD+=(-u "$UMI_TAG")
 
 echo "[INFO] Running Demuxalot for $SAMPLE -> $OUTDIR"
-singularity exec --bind "$HOST_ROOT":"$HOST_ROOT" "$CONTAINER" "${CMD[@]}"
+"$SING_BIN" exec --bind "$HOST_ROOT":"$HOST_ROOT" "$CONTAINER" "${CMD[@]}"
 echo "[INFO] Demuxalot completed for $SAMPLE"
