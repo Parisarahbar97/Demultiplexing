@@ -21,7 +21,9 @@ Options:
   --umi-tag STR       UMI SAM tag (default: UB)
   --refine BOOL       Run genotype refinement? (default: true)
   --container PATH    Path to Demuxafy Singularity image (default: \$DEMUXAFY_SIF)
-  --host-root PATH    Host directory to bind inside Singularity (default: /home/pr422)
+  --engine STR        Container engine: singularity, apptainer, or docker (auto-detect)
+  --docker-image STR  Docker image when using --engine docker (default: \$DEMUXAFY_DOCKER)
+  --host-root PATH    Host directory to bind inside container (default: /home/pr422)
   -h, --help          Show this message
 
 Example:
@@ -42,6 +44,8 @@ CELL_TAG=CB
 UMI_TAG=UB
 REFINE=true
 CONTAINER=${DEMUXAFY_SIF:-}
+ENGINE=${DEMUXALOT_ENGINE:-}
+DOCKER_IMAGE=${DEMUXAFY_DOCKER:-}
 SING_BIN=${SINGULARITY_BIN:-}
 HOST_ROOT=${HOST_ROOT:-/home/pr422}
 
@@ -58,6 +62,8 @@ while [[ $# -gt 0 ]]; do
     --umi-tag) UMI_TAG="$2"; shift 2 ;;
     --refine) REFINE="$2"; shift 2 ;;
     --container) CONTAINER="$2"; shift 2 ;;
+    --engine) ENGINE="$2"; shift 2 ;;
+    --docker-image) DOCKER_IMAGE="$2"; shift 2 ;;
     --host-root) HOST_ROOT="$2"; shift 2 ;;
     -h|--help) show_help; exit 0 ;;
     *) echo "[ERROR] Unknown arg: $1" >&2; show_help >&2; exit 1 ;;
@@ -89,18 +95,58 @@ if [[ ! -f "$VCF.tbi" && ! -f "$VCF.csi" ]]; then
   exit 1
 fi
 
-if [[ -z "$CONTAINER" || ! -f "$CONTAINER" ]]; then
-  echo "[ERROR] Set --container or export DEMUXAFY_SIF to point to Demuxafy.sif" >&2
+if [[ -n "$ENGINE" ]]; then
+  ENGINE=$(echo "$ENGINE" | tr '[:upper:]' '[:lower:]')
+fi
+
+detect_engine() {
+  if [[ -n "$ENGINE" ]]; then
+    echo "$ENGINE"
+    return
+  fi
+  if command -v singularity >/dev/null 2>&1; then
+    ENGINE=singularity
+    SING_BIN=$(command -v singularity)
+  elif command -v apptainer >/dev/null 2>&1; then
+    ENGINE=apptainer
+    SING_BIN=$(command -v apptainer)
+  elif command -v docker >/dev/null 2>&1; then
+    ENGINE=docker
+  else
+    ENGINE=""
+  fi
+  echo "$ENGINE"
+}
+
+ENGINE=$(detect_engine)
+if [[ -z "$ENGINE" ]]; then
+  echo "[ERROR] No container engine found. Install singularity/apptainer or docker, or pass --engine." >&2
   exit 1
 fi
 
-if [[ -z "$SING_BIN" ]]; then
-  if command -v singularity >/dev/null 2>&1; then
-    SING_BIN=$(command -v singularity)
-  elif command -v apptainer >/dev/null 2>&1; then
-    SING_BIN=$(command -v apptainer)
-  else
-    echo "[ERROR] Neither singularity nor apptainer is available; install one or set SINGULARITY_BIN." >&2
+if [[ "$ENGINE" == "docker" ]]; then
+  if [[ -z "$DOCKER_IMAGE" ]]; then
+    echo "[ERROR] For docker runs, set --docker-image or export DEMUXAFY_DOCKER." >&2
+    exit 1
+  fi
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "[ERROR] docker command not found in PATH." >&2
+    exit 1
+  fi
+else
+  if [[ -z "$SING_BIN" ]]; then
+    if command -v singularity >/dev/null 2>&1; then
+      SING_BIN=$(command -v singularity)
+    elif command -v apptainer >/dev/null 2>&1; then
+      SING_BIN=$(command -v apptainer)
+    fi
+  fi
+  if [[ -z "$SING_BIN" ]]; then
+    echo "[ERROR] Neither singularity nor apptainer executable found; install one or set SINGULARITY_BIN." >&2
+    exit 1
+  fi
+  if [[ -z "$CONTAINER" || ! -f "$CONTAINER" ]]; then
+    echo "[ERROR] Set --container or export DEMUXAFY_SIF to point to Demuxafy.sif" >&2
     exit 1
   fi
 fi
@@ -127,6 +173,13 @@ CMD=(Demuxalot.py
 [[ -n "$CELL_TAG" ]] && CMD+=(-c "$CELL_TAG")
 [[ -n "$UMI_TAG" ]] && CMD+=(-u "$UMI_TAG")
 
-echo "[INFO] Running Demuxalot for $SAMPLE -> $OUTDIR"
-"$SING_BIN" exec --bind "$HOST_ROOT":"$HOST_ROOT" "$CONTAINER" "${CMD[@]}"
+echo "[INFO] Running Demuxalot for $SAMPLE -> $OUTDIR (engine=$ENGINE)"
+if [[ "$ENGINE" == "docker" ]]; then
+  docker run --rm -u "$(id -u)":"$(id -g)" \
+    -v "$HOST_ROOT":"$HOST_ROOT" \
+    "$DOCKER_IMAGE" \
+    "${CMD[@]}"
+else
+  "$SING_BIN" exec --bind "$HOST_ROOT":"$HOST_ROOT" "$CONTAINER" "${CMD[@]}"
+fi
 echo "[INFO] Demuxalot completed for $SAMPLE"
